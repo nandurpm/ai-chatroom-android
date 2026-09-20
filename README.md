@@ -1,5 +1,12 @@
 # AI Chatroom
 
+## Install the built APK
+
+Download **AI-Chatroom-debug.apk** from the [verified debug release](https://github.com/nandurpm/ai-chatroom-android/releases/tag/debug-3). Sign in as an authorized repository user. Android 8.0 or later is required. Install, then enter your own provider API keys in Settings.
+
+Build run [35542290082](https://github.com/nandurpm/ai-chatroom-android/actions/runs/35542290082) compiled the APK, passed all 11 tests (zero failures/errors/skips), and verified its APK v2 signature. Device UI and live API calls have not been tested.
+
+
 A native Kotlin / Jetpack Compose Android app where a human, ChatGPT and Gemini share one persistent conversation. Material 3, system dark mode, MVVM, Retrofit, Room, coroutines and Flow.
 
 ## Open and build
@@ -27,7 +34,7 @@ For command-line builds without opening Android Studio, configure `ANDROID_HOME`
 
 APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Install with `adb install -r app/build/outputs/apk/debug/app-debug.apk`, or copy the APK to the phone and open it. This project includes source and a Gradle wrapper; **a compiled APK is not included**.
+Install with `adb install -r app/build/outputs/apk/debug/app-debug.apk`, or copy the APK to the phone and open it. The source checkout includes the Gradle wrapper. The compiled APK is available separately in the release linked above.
 
 ## API keys: no source-code changes needed
 
@@ -70,7 +77,7 @@ Friendly Roast allows light teasing while avoiding cruel or sensitive personal a
 | `app/src/test/.../TurnEngineTest.kt` | Ordering, peer awareness, solo mode, failure and cancellation tests |
 | `app/src/test/.../ProviderTest.kt` | MockWebServer API-contract and retry tests |
 | `gradle/wrapper/` | Wrapper launcher JAR and Gradle distribution configuration |
-| `.github/workflows/android.yml` | Optional GitHub build/test and debug-APK artifact workflow |
+| `.github/workflows/android.yml` | GitHub build/test/signature verification and private-release APK workflow |
 
 `...` in main paths means `app/src/main/java/com/example/aichatroom`.
 
@@ -139,9 +146,11 @@ Manual device checks:
 9. Test system light/dark mode, 200% font scale, a small phone and an open keyboard.
 10. Replace/remove each key and confirm other preferences/history remain.
 
-## Validation status of this delivery
+## Validation status
 
-Source/configuration was reviewed; XML and ZIP integrity were checked. The bundled source-built wrapper launcher was compiled with Java and started successfully, reaching the Gradle download step. Download was blocked by this environment's network restrictions. No Android SDK is installed here, so **Android compilation, the 11 unit tests, emulator checks and live provider calls have not been executed**. Run the commands above or the included GitHub workflow to complete validation.
+GitHub Actions successfully built the Android APK, executed all 11 unit tests with no failures, errors or skips, and verified the APK v2 signature. The private release includes the APK, SHA-256 checksum and test reports. APK SHA-256: `f07459dfa1948c4042680db2a322021edba9d89fdab77277578751f914ba524d`.
+
+GitHub Actions artifact uploads were blocked by the account storage quota. The workflow now attaches outputs to private repository releases. Emulator/device UI checks and live provider calls remain untested.
 
 ## Wrapper provenance
 
