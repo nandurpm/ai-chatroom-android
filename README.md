@@ -22,6 +22,14 @@ Create your NVIDIA key through [NVIDIA Build](https://build.nvidia.com/nvidia/ne
 
 The requested Qwen free endpoint is **deprecated** according to [its NVIDIA listing](https://build.nvidia.com/qwen/qwen3.5-397b-a17b). It remains the requested default fallback, but may also fail with 404/410. Both NVIDIA model fields are editable; select an active hosted model if needed. Google documents the requested [Gemini 3.6 Flash ID](https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash).
 
+## Faster replies (v1.2)
+
+Quick replies is enabled by default, including on existing settings. It requests no thinking for the default Nemotron/Qwen models (`chat_template_kwargs.enable_thinking=false`) and minimal thinking for Gemini 3.6 Flash (`generationConfig.thinkingConfig.thinkingLevel=MINIMAL`). Unknown/custom models omit these model-specific fields. See [NVIDIA thinking controls](https://build.nvidia.com/nvidia/nemotron-3-super-120b-a12b/modelcard) and [Gemini API controls](https://ai.google.dev/api/generate-content#ThinkingConfig).
+
+Quick mode asks for concise replies and caps output at 2,048 tokens in Friendly Roast or 4,096 in Expert Mode. Disable Quick replies in Settings for provider-default reasoning and the original 8,192 token budget. Lower thinking may reduce quality for difficult reasoning tasks. Full history and sequential peer awareness are preserved; responses still appear after each complete answer.
+
+Each provider has a 90-second deadline including retries and fallback. Timeout adds an inline error and lets the next AI reply. Stop replies cancels the active turn without deleting saved messages. Provider queues and network speed still affect latency; these changes are not a measured live speed guarantee.
+
 ## Fallback and shared conversation
 
 The primary NVIDIA request uses `https://integrate.api.nvidia.com/v1/chat/completions`, Bearer authentication, and `max_tokens`. If it returns 404 or 410, the app automatically tries the configured fallback using the same system prompt, full transcript and NVIDIA key. It switches models at most once. A successful fallback is identified in the message. If both are unavailable, an inline error tells the user to change the model IDs.
@@ -58,14 +66,14 @@ Output: `app/build/outputs/apk/debug/app-debug.apk`.
 - `network/Providers.kt`: Retrofit providers, transcript encoding, retries and NVIDIA fallback.
 - `ui/ChatViewModel.kt`: state and turn lifecycle.
 - `ui/ChatroomApp.kt`, `ui/Theme.kt`: Material 3 chat/settings screens and dark mode.
-- `app/src/test`: 17 tests covering ordering, solo chat, peer visibility, cancellation, API contracts, retries, missing keys, 404/410 fallback and historical speaker identity.
+- `app/src/test`: 21 tests covering ordering, solo chat, peer visibility, cancellation, API contracts, retries, missing keys, 404/410 fallback and historical speaker identity.
 - `.github/workflows/android.yml`: builds, runs tests, verifies APK signature and publishes private release assets. Release delivery avoids the account's exhausted Actions artifact storage.
 
 Main Kotlin paths are under `app/src/main/java/com/example/aichatroom`.
 
 ## Verification
 
-The CI release step runs only after all 17 tests and APK signature verification pass. Tests use MockWebServer with fake keys; live NVIDIA/Gemini calls and on-device UI checks require your own credentials/device and are not claimed as tested.
+The CI release step runs only after all 21 tests and APK signature verification pass. Tests use MockWebServer with fake keys; live NVIDIA/Gemini calls and on-device UI checks require your own credentials/device and are not claimed as tested.
 
 Manual checks: add keys, send a group message, switch modes, mute either AI, test offline errors, clear during typing, and reopen to verify saved history. To test model fallback, temporarily set a nonexistent NVIDIA primary model and an active fallback model, then restore the defaults.
 

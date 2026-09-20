@@ -50,9 +50,11 @@ class SettingsStore(context: Context) {
         nvidiaEnabled = prefs.getBoolean("nvidia_enabled", true), geminiEnabled = prefs.getBoolean("gemini", true),
         nvidiaModel = prefs.getString("nvidia_model", "nvidia/nemotron-3-super-120b-a12b")!!,
         geminiModel = prefs.getString("gemini_model_v2", "gemini-3.6-flash")!!,
+        quickReplies = prefs.getBoolean("quick_replies", true),
         nvidiaFallbackModel = prefs.getString("nvidia_fallback", "qwen/qwen3.5-397b-a17b")!!)
     fun save(value: Preferences) {
         check(prefs.edit().putString("mode", value.mode.name)
+            .putBoolean("quick_replies", value.quickReplies)
             .putBoolean("nvidia_enabled", value.nvidiaEnabled).putBoolean("gemini", value.geminiEnabled)
             .putString("nvidia_fallback", value.nvidiaFallbackModel).putString("nvidia_model", value.nvidiaModel).putString("gemini_model_v2", value.geminiModel).commit())
     }

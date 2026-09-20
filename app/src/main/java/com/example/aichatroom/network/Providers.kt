@@ -19,7 +19,8 @@ import java.util.concurrent.TimeUnit
 
 data class NvidiaMessage(val role: String, val content: String, val name: String? = null)
 data class NvidiaRequest(val model: String, val messages: List<NvidiaMessage>,
-    @SerializedName("max_tokens") val maxTokens: Int = 8192, val stream: Boolean = false)
+    @SerializedName("max_tokens") val maxTokens: Int = 8192, val stream: Boolean = false,
+    @SerializedName("chat_template_kwargs") val chatTemplateKwargs: Map<String, Boolean>? = null)
 data class NvidiaResponse(val choices: List<NvidiaChoice>?)
 data class NvidiaChoice(val message: NvidiaAnswer?)
 data class NvidiaAnswer(val content: String?, val refusal: String?)
@@ -29,7 +30,21 @@ interface NvidiaApi {
 }
 data class Part(val text: String? = null, val thought: Boolean? = null)
 data class Content(val role: String? = null, val parts: List<Part>)
-data class GenerationConfig(val maxOutputTokens: Int = 8192)
+data class ThinkingConfig(val thinkingLevel: String)
+data class GenerationConfig(val maxOutputTokens: Int = 8192, val thinkingConfig: ThinkingConfig? = null)
+
+// Only known model IDs get provider-specific controls; custom model IDs keep their defaults.
+object ReplyTuning {
+    fun nvidia(model: String, quick: Boolean): Map<String, Boolean>? =
+        if (quick && model in setOf("nvidia/nemotron-3-super-120b-a12b", "qwen/qwen3.5-397b-a17b"))
+            mapOf("enable_thinking" to false) else null
+    fun gemini(model: String, quick: Boolean): ThinkingConfig? =
+        if (quick && model == "gemini-3.6-flash") ThinkingConfig("MINIMAL") else null
+    fun tokens(quick: Boolean, mode: Mode): Int =
+        if (!quick) 8192 else if (mode == Mode.EXPERT) 4096 else 2048
+    fun prompt(prompt: String, quick: Boolean): String = prompt + if (quick)
+        "\nBe direct. For casual chat use a few sentences. For technical questions give the essential steps and details without repetition. Expand when the user asks." else ""
+}
 data class GeminiRequest(val contents: List<Content>, val systemInstruction: Content,
     val generationConfig: GenerationConfig = GenerationConfig())
 data class Candidate(val content: Content?, val finishReason: String?)
@@ -96,14 +111,16 @@ suspend fun <T> withRetry(block: suspend () -> T): T {
 }
 class NvidiaParticipant(private val api: NvidiaApi, private val key: () -> String,
     private val model: String,
-    private val fallbackModel: String = "qwen/qwen3.5-397b-a17b") : AIParticipant {
+    private val fallbackModel: String = "qwen/qwen3.5-397b-a17b",
+    private val quickReplies: Boolean = true, private val maxTokens: Int = 2048) : AIParticipant {
     override val speaker = Speaker.NVIDIA
     override suspend fun getResponse(conversationHistory: List<Message>, systemPrompt: String): String {
         val secret = withContext(Dispatchers.IO) { key() }
         if (secret.isBlank()) throw UserFacingException("Add your NVIDIA API key in Settings. OpenAI credits are not needed.")
-        val messages = listOf(NvidiaMessage("system", systemPrompt)) + Transcript.nvidia(conversationHistory)
+        val messages = listOf(NvidiaMessage("system", ReplyTuning.prompt(systemPrompt, quickReplies))) + Transcript.nvidia(conversationHistory)
         suspend fun request(modelId: String): String {
-            val response = withRetry { api.complete("Bearer $secret", NvidiaRequest(modelId, messages)) }
+            val response = withRetry { api.complete("Bearer $secret", NvidiaRequest(modelId, messages, maxTokens = maxTokens,
+                chatTemplateKwargs = ReplyTuning.nvidia(modelId, quickReplies))) }
             val answer = response.choices?.firstOrNull()?.message
             // Reasoning-only/empty content is not shown as a completed answer.
             return answer?.content?.takeIf { it.isNotBlank() } ?: answer?.refusal?.takeIf { it.isNotBlank() }
@@ -122,13 +139,15 @@ class NvidiaParticipant(private val api: NvidiaApi, private val key: () -> Strin
     }
 }
 class GeminiParticipant(private val api: GeminiApi, private val key: () -> String,
-    private val model: String) : AIParticipant {
+    private val model: String, private val quickReplies: Boolean = true,
+    private val maxTokens: Int = 2048) : AIParticipant {
     override val speaker = Speaker.GEMINI
     override suspend fun getResponse(conversationHistory: List<Message>, systemPrompt: String): String {
         val secret = withContext(Dispatchers.IO) { key() }
         if (secret.isBlank()) throw UserFacingException("Add your Gemini API key in Settings to invite Gemini.")
         val result = withRetry { api.generate(model, secret, GeminiRequest(Transcript.gemini(conversationHistory),
-            Content(parts = listOf(Part(systemPrompt))))) }
+            Content(parts = listOf(Part(ReplyTuning.prompt(systemPrompt, quickReplies)))),
+            GenerationConfig(maxTokens, ReplyTuning.gemini(model, quickReplies)))) }
         return result.candidates?.firstOrNull()?.content?.parts?.filterNot { it.thought == true }
             ?.mapNotNull { it.text }?.joinToString("\n")?.takeIf { it.isNotBlank() }
             ?: throw UserFacingException("Gemini returned no text or blocked this response. Try rephrasing your message.")
@@ -143,7 +162,9 @@ class ProviderFactory {
     private val nvidia = retrofit("https://integrate.api.nvidia.com/").create(NvidiaApi::class.java)
     private val gemini = retrofit("https://generativelanguage.googleapis.com/").create(GeminiApi::class.java)
     fun create(preferences: Preferences, key: (Speaker) -> String): List<AIParticipant> = buildList {
-        if (preferences.nvidiaEnabled) add(NvidiaParticipant(nvidia, { key(Speaker.NVIDIA) }, preferences.nvidiaModel, preferences.nvidiaFallbackModel))
-        if (preferences.geminiEnabled) add(GeminiParticipant(gemini, { key(Speaker.GEMINI) }, preferences.geminiModel))
+        if (preferences.nvidiaEnabled) add(NvidiaParticipant(nvidia, { key(Speaker.NVIDIA) }, preferences.nvidiaModel, preferences.nvidiaFallbackModel,
+            preferences.quickReplies, ReplyTuning.tokens(preferences.quickReplies, preferences.mode)))
+        if (preferences.geminiEnabled) add(GeminiParticipant(gemini, { key(Speaker.GEMINI) }, preferences.geminiModel,
+            preferences.quickReplies, ReplyTuning.tokens(preferences.quickReplies, preferences.mode)))
     }
 }

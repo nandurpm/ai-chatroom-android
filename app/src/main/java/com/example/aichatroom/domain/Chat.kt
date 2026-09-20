@@ -7,7 +7,7 @@ data class Message(val id: Long = 0, val speaker: Speaker, val text: String,
 data class Preferences(val mode: Mode = Mode.FRIENDLY, val nvidiaEnabled: Boolean = true,
     val geminiEnabled: Boolean = true, val nvidiaModel: String = "nvidia/nemotron-3-super-120b-a12b",
     val geminiModel: String = "gemini-3.6-flash",
-    val nvidiaFallbackModel: String = "qwen/qwen3.5-397b-a17b")
+    val nvidiaFallbackModel: String = "qwen/qwen3.5-397b-a17b", val quickReplies: Boolean = true)
 
 interface AIParticipant {
     val speaker: Speaker

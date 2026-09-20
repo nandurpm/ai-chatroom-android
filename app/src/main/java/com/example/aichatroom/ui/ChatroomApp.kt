@@ -129,6 +129,9 @@ import java.util.Locale
                 }
             }
         }
+        if (state.busy && state.thinking != null) TextButton(onClick = vm::stop, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("Stop replies")
+        }
         HorizontalDivider()
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -188,6 +191,14 @@ private fun speakerColor(speaker: Speaker): Color = when (speaker) {
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Your keys. Your conversation.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Text("No OpenAI key or credits required. Add your NVIDIA and Gemini keys. Free access depends on your provider account and quota. Full chat history is sent to enabled providers; keys are encrypted on this device.")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Quick replies", style = MaterialTheme.typography.titleMedium)
+                Text("Less thinking and shorter replies. Turn off for deeper reasoning.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = state.preferences.quickReplies, enabled = !state.busy,
+                onCheckedChange = { vm.updatePreferences(state.preferences.copy(quickReplies = it)) })
+        }
         KeyCard("NVIDIA", state.nvidiaKeySaved, nvidiaKey, { nvidiaKey = it }, !state.busy,
             { vm.removeKey(Speaker.NVIDIA) })
         OutlinedTextField(nvidiaModel, { nvidiaModel = it }, label = { Text("NVIDIA model ID") },

@@ -39,5 +39,5 @@ jobs:
           RELEASE_TAG: debug-${{ github.run_number }}
         run: |
           gh release create "$RELEASE_TAG" AI-Chatroom-NVIDIA.apk SHA256SUMS.txt test-results.tar.gz \
-            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom NVIDIA v1.1 - build $GITHUB_RUN_NUMBER" \
-            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. NVIDIA Nemotron with Qwen fallback on 404/410, plus Gemini 3.6 Flash. OpenAI credits not required. Enter NVIDIA and Gemini API keys in Settings."
+            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom Quick replies v1.2 - build $GITHUB_RUN_NUMBER" \
+            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Quick replies enabled by default: reduced thinking, shorter answers, Stop button, and 90-second per-provider deadline. NVIDIA Nemotron with Qwen fallback and Gemini 3.6 Flash. OpenAI credits not required. Enter NVIDIA and Gemini API keys in Settings."

@@ -68,4 +68,18 @@ class TurnEngineTest {
         assertTrue(gemini.seen.isEmpty())
         assertNull(thinking)
     }
+    @Test fun slowProviderTimesOutAndNextAIStillReplies() = runTest {
+        val store = MemoryStore()
+        val slow = Fake(Speaker.NVIDIA) { delay(100_000); "late" }
+        val fast = Fake(Speaker.GEMINI) { "ready" }
+        var thinking: Speaker? = null
+        TurnEngine(store) { false }.run(listOf(slow, fast), Mode.FRIENDLY,
+            { thinking = it }, { "error" })
+        assertEquals(90_000L, currentTime)
+        assertTrue(store.messages[1].error)
+        assertTrue(store.messages[1].text.contains("took too long"))
+        assertEquals("ready", store.messages.last().text)
+        assertEquals(1, fast.seen.single().size)
+        assertNull(thinking)
+    }
 }

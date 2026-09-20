@@ -44,6 +44,11 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
         }
         return true
     }
+    fun stop() {
+        if (clearing || turn?.isActive != true) return
+        turn?.cancel()
+        state.update { it.copy(notice = "Reply stopped. Saved messages were kept.") }
+    }
     // Cancels and joins the HTTP/DB work BEFORE clearing: no late reply can reappear.
     fun clear() {
         if (clearing) return
