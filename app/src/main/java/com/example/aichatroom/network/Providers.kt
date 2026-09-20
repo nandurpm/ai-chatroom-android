@@ -17,15 +17,15 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-data class OpenMessage(val role: String, val content: String, val name: String? = null)
-data class OpenRequest(val model: String, val messages: List<OpenMessage>,
-    @SerializedName("max_completion_tokens") val maxTokens: Int = 4096, val store: Boolean = false)
-data class OpenResponse(val choices: List<OpenChoice>?)
-data class OpenChoice(val message: OpenAnswer?)
-data class OpenAnswer(val content: String?, val refusal: String?)
-interface OpenApi {
+data class NvidiaMessage(val role: String, val content: String, val name: String? = null)
+data class NvidiaRequest(val model: String, val messages: List<NvidiaMessage>,
+    @SerializedName("max_tokens") val maxTokens: Int = 8192, val stream: Boolean = false)
+data class NvidiaResponse(val choices: List<NvidiaChoice>?)
+data class NvidiaChoice(val message: NvidiaAnswer?)
+data class NvidiaAnswer(val content: String?, val refusal: String?)
+interface NvidiaApi {
     @POST("v1/chat/completions")
-    suspend fun complete(@Header("Authorization") authorization: String, @Body request: OpenRequest): OpenResponse
+    suspend fun complete(@Header("Authorization") authorization: String, @Body request: NvidiaRequest): NvidiaResponse
 }
 data class Part(val text: String? = null, val thought: Boolean? = null)
 data class Content(val role: String? = null, val parts: List<Part>)
@@ -42,10 +42,10 @@ interface GeminiApi {
 class UserFacingException(message: String) : Exception(message)
 
 object Transcript {
-    fun open(history: List<Message>) = history.filterNot { it.error }.map {
-        // Gemini is a separate participant, not a prior OpenAI assistant response.
-        OpenMessage(if (it.speaker == Speaker.CHATGPT) "assistant" else "user", it.text,
-            when (it.speaker) { Speaker.USER -> "Human"; Speaker.CHATGPT -> "ChatGPT"; Speaker.GEMINI -> "Gemini" })
+    fun nvidia(history: List<Message>) = history.filterNot { it.error }.map {
+        // NVIDIA sees its own previous replies as assistant; peers remain named data.
+        NvidiaMessage(if (it.speaker == Speaker.NVIDIA) "assistant" else "user",
+            Gson().toJson(mapOf("speaker" to it.speaker.label, "text" to it.text)))
     }
     fun gemini(history: List<Message>): List<Content> {
         val result = mutableListOf<Content>()
@@ -67,7 +67,7 @@ object ApiErrors {
             401, 403 -> "API key rejected or access denied. Open Settings to check your key and model access."
             429 -> "Rate limit or quota reached. Wait, check API billing/quota, then try again."
             400, 413 -> "Request rejected. Check the model in Settings; if this chat is too long, start a new chat."
-            404 -> "Model not available. Update the model ID in Settings."
+            404, 410 -> "Model not available. Update the model ID in Settings."
             in 500..599 -> "AI service temporarily unavailable. Please try again shortly."
             else -> "API request failed (HTTP ${e.code()}). Please try again."
         }
@@ -94,17 +94,31 @@ suspend fun <T> withRetry(block: suspend () -> T): T {
     }
     error("Unreachable")
 }
-class OpenAiParticipant(private val api: OpenApi, private val key: () -> String,
-    private val model: String) : AIParticipant {
-    override val speaker = Speaker.CHATGPT
+class NvidiaParticipant(private val api: NvidiaApi, private val key: () -> String,
+    private val model: String,
+    private val fallbackModel: String = "qwen/qwen3.5-397b-a17b") : AIParticipant {
+    override val speaker = Speaker.NVIDIA
     override suspend fun getResponse(conversationHistory: List<Message>, systemPrompt: String): String {
         val secret = withContext(Dispatchers.IO) { key() }
-        if (secret.isBlank()) throw UserFacingException("Add your OpenAI API key in Settings to invite ChatGPT.")
-        val result = withRetry { api.complete("Bearer $secret", OpenRequest(model,
-            listOf(OpenMessage("system", systemPrompt)) + Transcript.open(conversationHistory))) }
-        val answer = result.choices?.firstOrNull()?.message
-        return answer?.content?.takeIf { it.isNotBlank() } ?: answer?.refusal?.takeIf { it.isNotBlank() }
-            ?: throw UserFacingException("ChatGPT returned no text. Try rephrasing your message.")
+        if (secret.isBlank()) throw UserFacingException("Add your NVIDIA API key in Settings. OpenAI credits are not needed.")
+        val messages = listOf(NvidiaMessage("system", systemPrompt)) + Transcript.nvidia(conversationHistory)
+        suspend fun request(modelId: String): String {
+            val response = withRetry { api.complete("Bearer $secret", NvidiaRequest(modelId, messages)) }
+            val answer = response.choices?.firstOrNull()?.message
+            // Reasoning-only/empty content is not shown as a completed answer.
+            return answer?.content?.takeIf { it.isNotBlank() } ?: answer?.refusal?.takeIf { it.isNotBlank() }
+                ?: throw UserFacingException("NVIDIA returned no answer text. Try again or choose another model in Settings.")
+        }
+        return try { request(model) } catch (e: HttpException) {
+            if (e.code() !in listOf(404, 410) || fallbackModel == model || fallbackModel.isBlank()) throw e
+            // One model switch only; auth/quota/server errors do not switch models.
+            try { "[NVIDIA fallback: $fallbackModel]\n\n" + request(fallbackModel) }
+            catch (fallbackError: HttpException) {
+                if (fallbackError.code() in listOf(404, 410)) throw UserFacingException(
+                    "Both NVIDIA models are unavailable. Select an active primary/fallback model in Settings; the requested Qwen endpoint is deprecated.")
+                throw fallbackError
+            }
+        }
     }
 }
 class GeminiParticipant(private val api: GeminiApi, private val key: () -> String,
@@ -122,14 +136,14 @@ class GeminiParticipant(private val api: GeminiApi, private val key: () -> Strin
 }
 class ProviderFactory {
     private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS).callTimeout(100, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS).callTimeout(200, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build()
     private fun retrofit(url: String) = Retrofit.Builder().baseUrl(url).client(client)
         .addConverterFactory(GsonConverterFactory.create()).build()
-    private val open = retrofit("https://api.openai.com/").create(OpenApi::class.java)
+    private val nvidia = retrofit("https://integrate.api.nvidia.com/").create(NvidiaApi::class.java)
     private val gemini = retrofit("https://generativelanguage.googleapis.com/").create(GeminiApi::class.java)
     fun create(preferences: Preferences, key: (Speaker) -> String): List<AIParticipant> = buildList {
-        if (preferences.chatGptEnabled) add(OpenAiParticipant(open, { key(Speaker.CHATGPT) }, preferences.openAiModel))
+        if (preferences.nvidiaEnabled) add(NvidiaParticipant(nvidia, { key(Speaker.NVIDIA) }, preferences.nvidiaModel, preferences.nvidiaFallbackModel))
         if (preferences.geminiEnabled) add(GeminiParticipant(gemini, { key(Speaker.GEMINI) }, preferences.geminiModel))
     }
 }

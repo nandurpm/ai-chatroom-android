@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.*
 
 data class ChatState(val messages: List<Message> = emptyList(), val preferences: Preferences = Preferences(),
     val busy: Boolean = false, val thinking: Speaker? = null, val notice: String? = null,
-    val openAiKeySaved: Boolean = false, val geminiKeySaved: Boolean = false)
+    val nvidiaKeySaved: Boolean = false, val geminiKeySaved: Boolean = false)
 class ChatViewModel(private val repository: ChatRepository, private val settings: SettingsStore,
     private val factory: ProviderFactory) : ViewModel() {
     private val state = MutableStateFlow(ChatState(preferences = settings.read(),
-        openAiKeySaved = settings.hasKey(Speaker.CHATGPT), geminiKeySaved = settings.hasKey(Speaker.GEMINI)))
+        nvidiaKeySaved = settings.hasKey(Speaker.NVIDIA), geminiKeySaved = settings.hasKey(Speaker.GEMINI)))
     val ui: StateFlow<ChatState> = combine(repository.messages.catch {
         state.update { it.copy(notice = "Chat history could not be loaded.") }; emit(emptyList())
     }, state) { messages, current -> current.copy(messages = messages) }
@@ -26,7 +26,7 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
         val clean = text.trim()
         if (state.value.busy || clearing || clean.isEmpty()) return false
         val preferences = state.value.preferences
-        if (!preferences.chatGptEnabled && !preferences.geminiEnabled) {
+        if (!preferences.nvidiaEnabled && !preferences.geminiEnabled) {
             state.update { it.copy(notice = "Unmute at least one AI before sending.") }; return false
         }
         state.update { it.copy(busy = true, notice = null) }
@@ -71,18 +71,19 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
         }
     }
     // Blank input means keep existing key; use explicit Remove to delete it.
-    fun saveKeys(openAi: String, gemini: String, openModel: String, geminiModel: String) {
+    fun saveKeys(nvidia: String, gemini: String, nvidiaModel: String, geminiModel: String, fallbackModel: String) {
         if (state.value.busy || clearing) return
         val modelPattern = Regex("[A-Za-z0-9._-]+")
-        if (!modelPattern.matches(openModel.trim()) || !modelPattern.matches(geminiModel.trim())) {
-            state.update { it.copy(notice = "Enter model IDs using letters, numbers, dots, underscores or hyphens.") }; return
+        val nvidiaPattern = Regex("[A-Za-z0-9._-]+/[A-Za-z0-9._-]+")
+        if (!nvidiaPattern.matches(nvidiaModel.trim()) || !nvidiaPattern.matches(fallbackModel.trim()) || !modelPattern.matches(geminiModel.trim())) {
+            state.update { it.copy(notice = "NVIDIA model IDs must use publisher/model. Gemini needs a model ID without a slash.") }; return
         }
         state.update { it.copy(busy = true) }
         viewModelScope.launch {
             try {
-                val updated = state.value.preferences.copy(openAiModel = openModel.trim(), geminiModel = geminiModel.trim())
+                val updated = state.value.preferences.copy(nvidiaModel = nvidiaModel.trim(), geminiModel = geminiModel.trim(), nvidiaFallbackModel = fallbackModel.trim())
                 withContext(Dispatchers.IO) {
-                    if (openAi.isNotBlank()) settings.saveKey(Speaker.CHATGPT, openAi)
+                    if (nvidia.isNotBlank()) settings.saveKey(Speaker.NVIDIA, nvidia)
                     if (gemini.isNotBlank()) settings.saveKey(Speaker.GEMINI, gemini)
                     settings.save(updated)
                 }
@@ -100,6 +101,6 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
             } finally { refreshKeys(); state.update { it.copy(busy = false) } }
         }
     }
-    private fun refreshKeys() { state.update { it.copy(openAiKeySaved = settings.hasKey(Speaker.CHATGPT),
+    private fun refreshKeys() { state.update { it.copy(nvidiaKeySaved = settings.hasKey(Speaker.NVIDIA),
         geminiKeySaved = settings.hasKey(Speaker.GEMINI)) } }
 }

@@ -30,14 +30,14 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
           python3 scripts/summarize_tests.py
-          cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom-debug.apk
-          sha256sum AI-Chatroom-debug.apk > SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom-NVIDIA.apk
+          sha256sum AI-Chatroom-NVIDIA.apk > SHA256SUMS.txt
           tar -czf test-results.tar.gz -C app/build/reports/tests testDebugUnitTest
       - name: Attach APK to private repository release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: debug-${{ github.run_number }}
         run: |
-          gh release create "$RELEASE_TAG" AI-Chatroom-debug.apk SHA256SUMS.txt test-results.tar.gz \
-            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom debug build $GITHUB_RUN_NUMBER" \
-            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Enter your API keys in app Settings."
+          gh release create "$RELEASE_TAG" AI-Chatroom-NVIDIA.apk SHA256SUMS.txt test-results.tar.gz \
+            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom NVIDIA v1.1 - build $GITHUB_RUN_NUMBER" \
+            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. NVIDIA Nemotron with Qwen fallback on 404/410, plus Gemini 3.6 Flash. OpenAI credits not required. Enter NVIDIA and Gemini API keys in Settings."

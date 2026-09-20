@@ -23,16 +23,16 @@ class TurnEngineTest {
     }
     @Test fun secondParticipantSeesFirstReply() = runTest {
         val store = MemoryStore()
-        val open = Fake(Speaker.CHATGPT) { "OpenAI reply" }
+        val open = Fake(Speaker.NVIDIA) { "NVIDIA reply" }
         val gemini = Fake(Speaker.GEMINI) { "Gemini reply" }
         TurnEngine(store) { false }.run(listOf(open, gemini), Mode.EXPERT, {}, { "error" })
-        assertEquals(listOf(Speaker.USER, Speaker.CHATGPT, Speaker.GEMINI), store.messages.map { it.speaker })
-        assertEquals("OpenAI reply", gemini.seen.single().last().text)
+        assertEquals(listOf(Speaker.USER, Speaker.NVIDIA, Speaker.GEMINI), store.messages.map { it.speaker })
+        assertEquals("NVIDIA reply", gemini.seen.single().last().text)
         assertEquals(1, open.seen.single().size)
     }
     @Test fun reversedOrderSharesGeminiReply() = runTest {
         val store = MemoryStore()
-        val open = Fake(Speaker.CHATGPT) { "OpenAI reply" }
+        val open = Fake(Speaker.NVIDIA) { "NVIDIA reply" }
         val gemini = Fake(Speaker.GEMINI) { "Gemini reply" }
         TurnEngine(store) { true }.run(listOf(open, gemini), Mode.FRIENDLY, {}, { "error" })
         assertEquals(Speaker.GEMINI, store.messages[1].speaker)
@@ -40,7 +40,7 @@ class TurnEngineTest {
     }
     @Test fun failureDoesNotStopOtherAIOrPolluteHistory() = runTest {
         val store = MemoryStore()
-        val open = Fake(Speaker.CHATGPT) { throw IllegalStateException("test failure") }
+        val open = Fake(Speaker.NVIDIA) { throw IllegalStateException("test failure") }
         val gemini = Fake(Speaker.GEMINI) { "Still works" }
         TurnEngine(store) { false }.run(listOf(open, gemini), Mode.EXPERT, {}, { "friendly error" })
         assertTrue(store.messages[1].error)
@@ -56,13 +56,13 @@ class TurnEngineTest {
     }
     @Test fun cancellationAddsNoErrorAndNeverStartsSecondAI() = runTest {
         val store = MemoryStore()
-        val open = Fake(Speaker.CHATGPT) { delay(10000); "late reply" }
+        val open = Fake(Speaker.NVIDIA) { delay(10000); "late reply" }
         val gemini = Fake(Speaker.GEMINI) { "should not run" }
         var thinking: Speaker? = null
         val job = launch { TurnEngine(store) { false }.run(listOf(open, gemini), Mode.EXPERT,
             { thinking = it }, { "error" }) }
         runCurrent()
-        assertEquals(Speaker.CHATGPT, thinking)
+        assertEquals(Speaker.NVIDIA, thinking)
         job.cancelAndJoin()
         assertEquals(1, store.messages.size)
         assertTrue(gemini.seen.isEmpty())

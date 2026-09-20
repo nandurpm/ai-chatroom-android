@@ -90,14 +90,14 @@ import java.util.Locale
                 onClick = { vm.updatePreferences(preferences.copy(mode = Mode.EXPERT)) }, label = { Text("Expert Mode") })
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ParticipantChip(Speaker.CHATGPT, preferences.chatGptEnabled, !state.busy) {
-                vm.updatePreferences(preferences.copy(chatGptEnabled = !preferences.chatGptEnabled))
+            ParticipantChip(Speaker.NVIDIA, preferences.nvidiaEnabled, !state.busy) {
+                vm.updatePreferences(preferences.copy(nvidiaEnabled = !preferences.nvidiaEnabled))
             }
             ParticipantChip(Speaker.GEMINI, preferences.geminiEnabled, !state.busy) {
                 vm.updatePreferences(preferences.copy(geminiEnabled = !preferences.geminiEnabled))
             }
         }
-        if ((preferences.chatGptEnabled && !state.openAiKeySaved) || (preferences.geminiEnabled && !state.geminiKeySaved)) {
+        if ((preferences.nvidiaEnabled && !state.nvidiaKeySaved) || (preferences.geminiEnabled && !state.geminiKeySaved)) {
             TextButton(onClick = onSettings, modifier = Modifier.padding(horizontal = 8.dp)) {
                 Text("Add API keys in Settings →")
             }
@@ -105,7 +105,7 @@ import java.util.Locale
         if (state.messages.isEmpty() && !state.busy) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(32.dp),
                 verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { Avatar(Speaker.CHATGPT); Avatar(Speaker.GEMINI) }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { Avatar(Speaker.NVIDIA); Avatar(Speaker.GEMINI) }
                 Spacer(Modifier.height(20.dp))
                 Text("Meet your group chat.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
@@ -135,7 +135,7 @@ import java.util.Locale
             OutlinedTextField(value = draft, onValueChange = { draft = it }, modifier = Modifier.weight(1f),
                 placeholder = { Text("Message the room…") }, maxLines = 5, shape = RoundedCornerShape(24.dp))
             FilledIconButton(onClick = { if (vm.send(draft)) draft = "" },
-                enabled = draft.isNotBlank() && !state.busy && (preferences.chatGptEnabled || preferences.geminiEnabled),
+                enabled = draft.isNotBlank() && !state.busy && (preferences.nvidiaEnabled || preferences.geminiEnabled),
                 modifier = Modifier.size(52.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send message") }
         }
     }
@@ -146,11 +146,11 @@ import java.util.Locale
         label = { Text("${speaker.label} · ${if (active) "on" else "muted"}") })
 }
 private fun speakerColor(speaker: Speaker): Color = when (speaker) {
-    Speaker.CHATGPT -> Color(0xFF087D59); Speaker.GEMINI -> Color(0xFF315FC6); Speaker.USER -> Color(0xFF6750A4)
+    Speaker.NVIDIA -> Color(0xFF087D59); Speaker.CHATGPT -> Color(0xFF087D59); Speaker.GEMINI -> Color(0xFF315FC6); Speaker.USER -> Color(0xFF6750A4)
 }
 @Composable private fun Avatar(speaker: Speaker) {
     Box(Modifier.size(36.dp).background(speakerColor(speaker), CircleShape), contentAlignment = Alignment.Center) {
-        Text(when (speaker) { Speaker.CHATGPT -> "C"; Speaker.GEMINI -> "G"; Speaker.USER -> "U" },
+        Text(when (speaker) { Speaker.NVIDIA -> "N"; Speaker.CHATGPT -> "C"; Speaker.GEMINI -> "G"; Speaker.USER -> "U" },
             color = Color.White, fontWeight = FontWeight.Bold)
     }
 }
@@ -179,25 +179,30 @@ private fun speakerColor(speaker: Speaker): Color = when (speaker) {
 
 @Composable private fun SettingsScreen(state: ChatState, vm: ChatViewModel) {
     // Deliberately remember, NOT rememberSaveable: keys must never enter saved-state bundles.
-    var openKey by remember { mutableStateOf("") }
+    var nvidiaKey by remember { mutableStateOf("") }
     var geminiKey by remember { mutableStateOf("") }
-    var openModel by remember(state.preferences.openAiModel) { mutableStateOf(state.preferences.openAiModel) }
+    var nvidiaModel by remember(state.preferences.nvidiaModel) { mutableStateOf(state.preferences.nvidiaModel) }
+    var fallbackModel by remember(state.preferences.nvidiaFallbackModel) { mutableStateOf(state.preferences.nvidiaFallbackModel) }
     var geminiModel by remember(state.preferences.geminiModel) { mutableStateOf(state.preferences.geminiModel) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Your keys. Your conversation.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Keys are encrypted on this device. Messages are sent to each enabled provider with the full chat history. API usage may incur charges.")
-        KeyCard("OpenAI", state.openAiKeySaved, openKey, { openKey = it }, !state.busy,
-            { vm.removeKey(Speaker.CHATGPT) })
-        OutlinedTextField(openModel, { openModel = it }, label = { Text("OpenAI model ID") },
+        Text("No OpenAI key or credits required. Add your NVIDIA and Gemini keys. Free access depends on your provider account and quota. Full chat history is sent to enabled providers; keys are encrypted on this device.")
+        KeyCard("NVIDIA", state.nvidiaKeySaved, nvidiaKey, { nvidiaKey = it }, !state.busy,
+            { vm.removeKey(Speaker.NVIDIA) })
+        OutlinedTextField(nvidiaModel, { nvidiaModel = it }, label = { Text("NVIDIA model ID") },
             enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(fallbackModel, { fallbackModel = it }, label = { Text("NVIDIA fallback model ID") },
+            enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("On NVIDIA 404/410, retry once with this fallback model. The requested Qwen free endpoint is deprecated; choose an active model if it fails.",
+            style = MaterialTheme.typography.bodySmall)
         KeyCard("Gemini", state.geminiKeySaved, geminiKey, { geminiKey = it }, !state.busy,
             { vm.removeKey(Speaker.GEMINI) })
         OutlinedTextField(geminiModel, { geminiModel = it }, label = { Text("Gemini model ID") },
             enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
-            vm.saveKeys(openKey, geminiKey, openModel, geminiModel)
-            openKey = ""; geminiKey = ""
+            vm.saveKeys(nvidiaKey, geminiKey, nvidiaModel, geminiModel, fallbackModel)
+            nvidiaKey = ""; geminiKey = ""
         }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Save settings") }
         Text("Leave a key field blank to keep its saved value. Use Remove to delete a key. Model IDs can be changed if availability changes.",
             style = MaterialTheme.typography.bodySmall)

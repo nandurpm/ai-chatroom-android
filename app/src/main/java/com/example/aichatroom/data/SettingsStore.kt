@@ -15,6 +15,7 @@ import javax.crypto.spec.GCMParameterSpec
 // No keys in BuildConfig, source code, URLs, logs, Room, or saved Compose state.
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    // Separate NVIDIA slot: never reuse or transmit a saved OpenAI credential.
     private val vault = context.getSharedPreferences("encrypted_keys", Context.MODE_PRIVATE)
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -46,12 +47,13 @@ class SettingsStore(context: Context) {
     fun hasKey(speaker: Speaker) = vault.contains(speaker.name)
     fun read() = Preferences(
         mode = runCatching { Mode.valueOf(prefs.getString("mode", "FRIENDLY")!!) }.getOrDefault(Mode.FRIENDLY),
-        chatGptEnabled = prefs.getBoolean("chatgpt", true), geminiEnabled = prefs.getBoolean("gemini", true),
-        openAiModel = prefs.getString("openai_model", "gpt-4.1-mini")!!,
-        geminiModel = prefs.getString("gemini_model", "gemini-2.5-flash")!!)
+        nvidiaEnabled = prefs.getBoolean("nvidia_enabled", true), geminiEnabled = prefs.getBoolean("gemini", true),
+        nvidiaModel = prefs.getString("nvidia_model", "nvidia/nemotron-3-super-120b-a12b")!!,
+        geminiModel = prefs.getString("gemini_model_v2", "gemini-3.6-flash")!!,
+        nvidiaFallbackModel = prefs.getString("nvidia_fallback", "qwen/qwen3.5-397b-a17b")!!)
     fun save(value: Preferences) {
         check(prefs.edit().putString("mode", value.mode.name)
-            .putBoolean("chatgpt", value.chatGptEnabled).putBoolean("gemini", value.geminiEnabled)
-            .putString("openai_model", value.openAiModel).putString("gemini_model", value.geminiModel).commit())
+            .putBoolean("nvidia_enabled", value.nvidiaEnabled).putBoolean("gemini", value.geminiEnabled)
+            .putString("nvidia_fallback", value.nvidiaFallbackModel).putString("nvidia_model", value.nvidiaModel).putString("gemini_model_v2", value.geminiModel).commit())
     }
 }

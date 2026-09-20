@@ -17,7 +17,7 @@ class ProviderTest {
     private fun retrofit(server: MockWebServer) = Retrofit.Builder().baseUrl(server.url("/"))
         .addConverterFactory(GsonConverterFactory.create()).build()
     private val history = listOf(Message(speaker = Speaker.USER, text = "Hi"),
-        Message(speaker = Speaker.CHATGPT, text = "First response"))
+        Message(speaker = Speaker.NVIDIA, text = "First response"))
     @Test fun geminiReceivesNamedPeerAndSystemPrompt() = runTest {
         val server = MockWebServer()
         try {
@@ -29,15 +29,15 @@ class ProviderTest {
             assertEquals("fake-test-key", request.getHeader("x-goog-api-key"))
             val json = JsonParser.parseString(request.body.readUtf8()).asJsonObject
             assertTrue(json["systemInstruction"].toString().contains("Expert prompt"))
-            assertTrue(json["contents"].toString().contains("ChatGPT"))
+            assertTrue(json["contents"].toString().contains("NVIDIA"))
             assertTrue(json["contents"].toString().contains("First response"))
         } finally { server.shutdown() }
     }
-    @Test fun openAiUsesChatEndpointAndNamedPeer() = runTest {
+    @Test fun nvidiaUsesChatEndpointAndNamedPeer() = runTest {
         val server = MockWebServer()
         try {
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Hello"}}]}"""))
-            val ai = OpenAiParticipant(retrofit(server).create(OpenApi::class.java), { "fake-test-key" }, "gpt-test")
+            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake-test-key" }, "gpt-test")
             val peer = listOf(Message(speaker = Speaker.USER, text = "Hi"), Message(speaker = Speaker.GEMINI, text = "Peer answer"))
             assertEquals("Hello", ai.getResponse(peer, "System prompt"))
             val request = server.takeRequest()
@@ -45,14 +45,17 @@ class ProviderTest {
             assertEquals("Bearer fake-test-key", request.getHeader("Authorization"))
             val json = JsonParser.parseString(request.body.readUtf8()).asJsonObject
             val last = json["messages"].asJsonArray.last().asJsonObject
-            assertEquals("Gemini", last["name"].asString)
+            assertEquals("Gemini", JsonParser.parseString(last["content"].asString).asJsonObject["speaker"].asString)
+            assertTrue(json.has("max_tokens"))
+            assertFalse(json.has("max_completion_tokens"))
+            assertFalse(json.has("store"))
             assertEquals("user", last["role"].asString)
         } finally { server.shutdown() }
     }
     @Test fun missingKeyNeverCallsNetwork() = runTest {
         val server = MockWebServer()
         try {
-            val ai = OpenAiParticipant(retrofit(server).create(OpenApi::class.java), { "" }, "gpt-test")
+            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "" }, "gpt-test")
             try { ai.getResponse(history, "prompt"); fail("Expected missing key") }
             catch (e: UserFacingException) { assertTrue(e.message!!.contains("Settings")) }
             assertEquals(0, server.requestCount)
@@ -63,7 +66,7 @@ class ProviderTest {
         try {
             server.enqueue(MockResponse().setResponseCode(429).addHeader("Retry-After", "1"))
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Recovered"}}]}"""))
-            val ai = OpenAiParticipant(retrofit(server).create(OpenApi::class.java), { "fake" }, "gpt-test")
+            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake" }, "gpt-test")
             assertEquals("Recovered", ai.getResponse(history, "prompt"))
             assertEquals(2, server.requestCount)
         } finally { server.shutdown() }
@@ -72,7 +75,7 @@ class ProviderTest {
         val server = MockWebServer()
         try {
             server.enqueue(MockResponse().setResponseCode(401))
-            val ai = OpenAiParticipant(retrofit(server).create(OpenApi::class.java), { "fake" }, "gpt-test")
+            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake" }, "gpt-test")
             try { ai.getResponse(history, "prompt"); fail("Expected HTTP error") }
             catch (e: HttpException) { assertEquals(401, e.code()) }
             assertEquals(1, server.requestCount)
