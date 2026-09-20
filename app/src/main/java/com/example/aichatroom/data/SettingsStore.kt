@@ -1,0 +1,57 @@
+package com.example.aichatroom.data
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import com.example.aichatroom.domain.*
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+// Only ciphertext reaches SharedPreferences; AES key never leaves Android Keystore.
+// No keys in BuildConfig, source code, URLs, logs, Room, or saved Compose state.
+class SettingsStore(context: Context) {
+    private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val vault = context.getSharedPreferences("encrypted_keys", Context.MODE_PRIVATE)
+    private fun key(): SecretKey {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey("ai_chatroom_v1", null) as? SecretKey)?.let { return it }
+        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder("ai_chatroom_v1",
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
+        }.generateKey()
+    }
+    @Synchronized fun readKey(speaker: Speaker): String {
+        val raw = vault.getString(speaker.name, null) ?: return ""
+        val pieces = raw.split(":")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(pieces[0], Base64.NO_WRAP)))
+        return String(cipher.doFinal(Base64.decode(pieces[1], Base64.NO_WRAP)), Charsets.UTF_8)
+    }
+    @Synchronized fun saveKey(speaker: Speaker, value: String) {
+        if (value.isBlank()) {
+            check(vault.edit().remove(speaker.name).commit()); return
+        }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val encoded = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
+            Base64.encodeToString(cipher.doFinal(value.trim().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        check(vault.edit().putString(speaker.name, encoded).commit())
+    }
+    fun hasKey(speaker: Speaker) = vault.contains(speaker.name)
+    fun read() = Preferences(
+        mode = runCatching { Mode.valueOf(prefs.getString("mode", "FRIENDLY")!!) }.getOrDefault(Mode.FRIENDLY),
+        chatGptEnabled = prefs.getBoolean("chatgpt", true), geminiEnabled = prefs.getBoolean("gemini", true),
+        openAiModel = prefs.getString("openai_model", "gpt-4.1-mini")!!,
+        geminiModel = prefs.getString("gemini_model", "gemini-2.5-flash")!!)
+    fun save(value: Preferences) {
+        check(prefs.edit().putString("mode", value.mode.name)
+            .putBoolean("chatgpt", value.chatGptEnabled).putBoolean("gemini", value.geminiEnabled)
+            .putString("openai_model", value.openAiModel).putString("gemini_model", value.geminiModel).commit())
+    }
+}
