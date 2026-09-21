@@ -27,24 +27,35 @@ class SettingsStore(context: Context) {
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    @Synchronized fun readKey(speaker: Speaker): String {
-        val raw = vault.getString(speaker.name, null) ?: return ""
+    @Synchronized fun readKey(speaker: AgentProfile): String {
+        return readSecret(speaker.id)
+    }
+    @Synchronized fun readSecret(slot: String): String {
+        val raw = vault.getString(slot, null) ?: return ""
         val pieces = raw.split(":")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(pieces[0], Base64.NO_WRAP)))
         return String(cipher.doFinal(Base64.decode(pieces[1], Base64.NO_WRAP)), Charsets.UTF_8)
     }
-    @Synchronized fun saveKey(speaker: Speaker, value: String) {
+    @Synchronized fun saveKey(speaker: AgentProfile, value: String) {
+        saveSecret(speaker.id, value)
+    }
+    @Synchronized fun saveSecret(slot: String, value: String) {
         if (value.isBlank()) {
-            check(vault.edit().remove(speaker.name).commit()); return
+            check(vault.edit().remove(slot).commit()); return
         }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val encoded = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
             Base64.encodeToString(cipher.doFinal(value.trim().toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
-        check(vault.edit().putString(speaker.name, encoded).commit())
+        check(vault.edit().putString(slot, encoded).commit())
     }
-    fun hasKey(speaker: Speaker) = vault.contains(speaker.name)
+    fun hasKey(speaker: AgentProfile) = vault.contains(speaker.name)
+    // A one-time import preserves old mute/model choices without overwriting future profile edits.
+    fun agentsImported() = prefs.getBoolean("agents_imported", false)
+    fun markAgentsImported() { check(prefs.edit().putBoolean("agents_imported", true).commit()) }
+    fun githubRepo() = prefs.getString("github_repo", "").orEmpty()
+    fun saveGithubRepo(repo: String) { check(prefs.edit().putString("github_repo", repo).commit()) }
     fun read() = Preferences(
         mode = runCatching { Mode.valueOf(prefs.getString("mode", "FRIENDLY")!!) }.getOrDefault(Mode.FRIENDLY),
         nvidiaEnabled = prefs.getBoolean("nvidia_enabled", true), geminiEnabled = prefs.getBoolean("gemini", true),

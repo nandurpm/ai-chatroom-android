@@ -57,6 +57,9 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
         onBackground = Color(0xFFE5E8F0),
         surface = Night,
         onSurface = Color(0xFFE5E8F0),
+        surfaceContainer = NightSurface,
+        surfaceContainerHighest = NightElevated,
+        tertiary = Color(0xFF98D8A0),
         surfaceVariant = NightElevated,
         onSurfaceVariant = Color(0xFFC2C8D4),
         outline = Color(0xFF4D586A),
@@ -74,6 +77,9 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
         onBackground = Ink,
         surface = Canvas,
         onSurface = Ink,
+        surfaceContainer = Color.White,
+        surfaceContainerHighest = Color(0xFFEEF0F6),
+        tertiary = Color(0xFF226A38),
         surfaceVariant = Color(0xFFEEF0F6),
         onSurfaceVariant = MutedInk,
         outline = Color(0xFFD0D5E0),
@@ -88,9 +94,9 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
     )
 }
 
-fun speakerAccent(speaker: com.example.aichatroom.domain.Speaker): Color = when (speaker) {
-    com.example.aichatroom.domain.Speaker.NVIDIA -> Color(0xFF0A8F78)
-    com.example.aichatroom.domain.Speaker.CHATGPT -> Color(0xFF0A8F78)
-    com.example.aichatroom.domain.Speaker.GEMINI -> Color(0xFF5577E8)
-    com.example.aichatroom.domain.Speaker.USER -> Color(0xFF7568DE)
+/** Choose readable avatar text independently from system theme and user-selected background. */
+fun avatarTextColor(background: Color): Color {
+    fun linear(channel: Float): Double = if (channel <= 0.04045f) channel / 12.92 else Math.pow((channel + 0.055) / 1.055, 2.4)
+    val luminance = 0.2126 * linear(background.red) + 0.7152 * linear(background.green) + 0.0722 * linear(background.blue)
+    return if (luminance > 0.179) Color.Black else Color.White
 }
