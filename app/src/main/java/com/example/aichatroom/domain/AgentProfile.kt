@@ -21,7 +21,7 @@ data class ProviderConfig(
 ) {
     /** Reject credential-bearing URLs and remote cleartext before opening a socket. */
     fun validate() {
-        val uri = URI(baseUrl)
+        val uri = runCatching { URI(baseUrl) }.getOrElse { throw IllegalArgumentException("Enter a valid API base URL.") }
         require(uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null) { "Use a base URL without credentials, query or fragment." }
         val host = uri.host.orEmpty()
         val ipv4 = host.split('.').mapNotNull { it.toIntOrNull()?.takeIf { n -> n in 0..255 } }

@@ -81,7 +81,8 @@ object Transcript {
 /** Sanitized diagnostics never expose raw HTTP bodies or credentials. */
 object ApiErrors {
     fun describe(e: Exception): String = when (e) {
-        is IllegalArgumentException -> e.message ?: "Check the context budget in Settings."
+        is ContextBudgetException -> e.message ?: "Check the context budget in Settings."
+        is IllegalArgumentException -> "Invalid provider configuration. Check Settings."
         is UserFacingException -> e.message ?: "Unable to get a reply."
         is HttpException -> when (e.code()) {
             401, 403 -> "API key rejected or access denied. Open Settings to check your key and model access."

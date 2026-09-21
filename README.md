@@ -86,12 +86,12 @@ chmod +x gradlew
 Windows: `.\gradlew.bat testDebugUnitTest assembleDebug`.
 Output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-The existing **21 test scenarios are retained**, adapting enum references to profiles and routing old NVIDIA test fixtures through the generic implementation. New tests cover the changes below. Validation status is recorded in the PR; a test existing in source is not evidence that it passed. CI on the feature branch builds/tests without publishing a release. Main/master release builds run only after tests and APK signature verification.
+The suite has **45 tests: the original 21 scenarios plus 24 new tests**. The existing **21 test scenarios are retained**, adapting enum references to profiles and routing old NVIDIA test fixtures through the generic implementation. New tests cover the changes below. Validation status is recorded in the PR; a test existing in source is not evidence that it passed. CI on the feature branch builds/tests without publishing a release. Main/master release builds run only after tests and APK signature verification.
 
 | Step | Existing tests touched | New tests |
 | --- | --- | --- |
 | 1. Runtime agents/migration | Profile type references in all four original test files; historical identity assertion retained | `AgentMigrationTest`: real SQLite v1→v2 open/Room schema validation, all four legacy speakers, rename/archive history, custom profile round-trip, fixed USER |
-| 2. Generic providers | `ProviderTest`, `NvidiaFallbackTest`, `ReplyTuningTest`: generic DTO/API and compatible base prefix; old assertions retained | `AgentFeaturesTest`: custom base path/header, self-role, max-token override, authentication styles, URL/cleartext restrictions |
+| 2. Generic providers | `ProviderTest`, `NvidiaFallbackTest`, `ReplyTuningTest`: generic DTO/API and compatible base prefix; old assertions retained | `AgentFeaturesTest`: custom base path/header, self-role, max-token override, authentication styles, URL/cleartext restrictions, malformed URLs and credential-safe diagnostics |
 | 3. Presets | None beyond profile adaptation | Preset configuration validation and explicit Cerebras trial labeling |
 | 4. Arbitrary roster | `TurnEngineTest`: same six ordering/error/cancellation/deadline scenarios using profiles | Three-agent turn/peer visibility, full-roster and solo prompts |
 | 5. Rich content | None | `MarkdownTest`: required blocks, exact code whitespace, unfinished fences, emphasis/escapes, escaped table pipes, non-mutating highlighting |

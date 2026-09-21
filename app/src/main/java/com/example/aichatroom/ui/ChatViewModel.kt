@@ -66,7 +66,7 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
                 proposals.forEach(confirmations::offer)
                 state.update { it.copy(proposals = it.proposals + proposals) }
             } catch (e: CancellationException) { throw e
-            } catch (e: Exception) { notice(if (e is IllegalArgumentException) e.message ?: "Invalid settings." else ApiErrors.describe(e))
+            } catch (e: Exception) { notice(ApiErrors.describe(e))
             } finally { state.update { it.copy(busy = false, statuses = emptyMap()) } }
         }
         return true
@@ -137,7 +137,7 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
         state.update { it.copy(busy = true) }
         viewModelScope.launch {
             try { block() } catch (e: CancellationException) { throw e
-            } catch (e: Exception) { notice(if (e is IllegalArgumentException) e.message ?: "Invalid input." else ApiErrors.describe(e))
+            } catch (e: Exception) { notice(ApiErrors.describe(e))
             } finally { state.update { it.copy(busy = false) } }
         }
     }

@@ -30,6 +30,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
           python3 scripts/summarize_tests.py
+          stat --format="APK size: %s bytes" app/build/outputs/apk/debug/app-debug.apk
           cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom.apk
           sha256sum AI-Chatroom.apk > SHA256SUMS.txt
           tar -czf test-results.tar.gz -C app/build/reports/tests testDebugUnitTest

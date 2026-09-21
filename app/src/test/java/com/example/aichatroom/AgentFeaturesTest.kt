@@ -61,7 +61,7 @@ class AgentFeaturesTest {
     }
     @Test fun cleartextIsRestrictedToExplicitKeylessLocalEndpoints() {
         custom.providerConfig.copy(baseUrl = "http://10.0.2.2:11434/v1/", authStyle = AuthStyle.NONE, allowLocalHttp = true).validate()
-        for (url in listOf("http://example.com/v1/", "https://user:pass@example.com/v1/", "https://example.com/?key=secret")) {
+        for (url in listOf("not a url", "https://bad host/", "http://example.com/v1/", "https://user:pass@example.com/v1/", "https://example.com/?key=secret")) {
             assertThrows(IllegalArgumentException::class.java) { custom.providerConfig.copy(baseUrl = url, authStyle = AuthStyle.NONE, allowLocalHttp = true).validate() }
         }
         assertThrows(IllegalArgumentException::class.java) { custom.providerConfig.copy(baseUrl = "http://10.0.2.2:11434/", allowLocalHttp = true).validate() }
@@ -89,4 +89,10 @@ class AgentFeaturesTest {
     @Test fun avatarTextHasContrastForLightAndDarkBackgrounds() {
         assertEquals(Color.Black, avatarTextColor(Color.White)); assertEquals(Color.White, avatarTextColor(Color.Black))
     }
+    @Test fun diagnosticsNeverExposeRawHeaderValues() {
+        val text = ApiErrors.describe(IllegalArgumentException("Invalid header: Bearer super-secret"))
+        assertFalse(text.contains("super-secret"))
+        assertTrue(ApiErrors.describe(ContextBudgetException("Your latest message is too large")).contains("too large"))
+    }
+
 }
