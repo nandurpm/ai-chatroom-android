@@ -26,15 +26,16 @@ export default function Home() {
   const [agents, setAgents] = useState(starterAgents);
   const [messages, setMessages] = useState([]);
   const [mode, setMode] = useState("friendly");
+  const [turnMode, setTurnMode] = useState("fast");
   const [draft, setDraft] = useState("");
-  const [runningAgentId, setRunningAgentId] = useState("");
+  const [runningAgentIds, setRunningAgentIds] = useState([]);
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(true);
   const abortRef = useRef(null);
   const endRef = useRef(null);
 
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
-  const running = Boolean(runningAgentId);
+  const running = runningAgentIds.length > 0;
 
   useEffect(() => {
     try {
@@ -43,17 +44,18 @@ export default function Home() {
       if (stored?.agents?.length) setAgents(stored.agents.map((agent) => ({ ...agent, apiKey: keys[agent.id] || "" })));
       if (Array.isArray(stored?.messages)) setMessages(stored.messages.slice(-200));
       if (stored?.mode === "expert" || stored?.mode === "friendly") setMode(stored.mode);
+      if (stored?.turnMode === "fast" || stored?.turnMode === "discussion") setTurnMode(stored.turnMode);
     } catch {}
     setMounted(true);
   }, []);
 
   useEffect(() => {
     if (!mounted) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ agents: agents.map(agentWithoutSecret), messages: messages.slice(-200), mode }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ agents: agents.map(agentWithoutSecret), messages: messages.slice(-200), mode, turnMode }));
     sessionStorage.setItem(KEY_STORAGE, JSON.stringify(Object.fromEntries(agents.filter((a) => a.apiKey).map((a) => [a.id, a.apiKey]))));
-  }, [agents, messages, mode, mounted]);
+  }, [agents, messages, mode, turnMode, mounted]);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, runningAgentId]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages, runningAgentIds.length]);
 
   function updateAgent(id, patch) {
     setAgents((current) => current.map((agent) => (agent.id === id ? { ...agent, ...patch } : agent)));
@@ -99,58 +101,86 @@ export default function Home() {
     });
   }
 
+  function markRunning(id, value) {
+    setRunningAgentIds((current) => value ? (current.includes(id) ? current : [...current, id]) : current.filter((item) => item !== id));
+  }
+
+  async function requestAgent(agent, history, systemPrompt, controller) {
+    if (!agent.apiKey.trim()) {
+      return newMessage({ speakerId: agent.id, speakerName: agent.name, text: "API key missing. Open this participant's settings and add a key.", error: true });
+    }
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          agent: { id: agent.id, name: agent.name, providerId: agent.providerId, model: agent.model },
+          apiKey: agent.apiKey,
+          history,
+          systemPrompt,
+          maxTokens: mode === "expert" ? 4096 : 2048,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "Unable to get a reply.");
+      return newMessage({ speakerId: agent.id, speakerName: agent.name, text: payload.text });
+    } catch (error) {
+      if (controller.signal.aborted) return null;
+      return newMessage({ speakerId: agent.id, speakerName: agent.name, text: error instanceof Error ? error.message : "Unable to get a reply.", error: true });
+    }
+  }
+
   async function sendMessage(event) {
     event?.preventDefault();
     const text = draft.trim();
     if (!text || running || activeAgents.length === 0) return;
 
     const userMessage = newMessage({ speakerId: "USER", speakerName: "You", text });
-    let history = [...messages, userMessage];
-    setMessages(history);
+    const baseHistory = [...messages, userMessage];
+    setMessages(baseHistory);
     setDraft("");
 
     const controller = new AbortController();
     abortRef.current = controller;
     const roster = activeAgents.map((agent) => agent.name).join(", ");
     const tone = mode === "expert" ? "Give technically precise answers with concrete steps, assumptions, and caveats when useful." : "Keep the discussion natural and direct. Prefer a few useful paragraphs over a long lecture.";
-    const systemPrompt = `This room has these active AI participants: ${roster}. ${tone} Build on useful prior replies without repeating them unnecessarily.`;
+    const coordination = turnMode === "fast"
+      ? "Answer independently from the shared transcript so all participants can respond at the same time. Do not invent replies from peers that are not in the transcript."
+      : "Build on useful prior replies from other participants without repeating them unnecessarily.";
+    const systemPrompt = `This room has these active AI participants: ${roster}. ${tone} ${coordination}`;
 
-    for (const agent of activeAgents) {
-      if (controller.signal.aborted) break;
-      setRunningAgentId(agent.id);
-      if (!agent.apiKey.trim()) {
-        history = [...history, newMessage({ speakerId: agent.id, speakerName: agent.name, text: "API key missing. Open this participant's settings and add a key.", error: true })];
-        setMessages(history);
-        continue;
-      }
-      try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            agent: { id: agent.id, name: agent.name, providerId: agent.providerId, model: agent.model },
-            apiKey: agent.apiKey,
-            history,
-            systemPrompt,
-            maxTokens: mode === "expert" ? 4096 : 2048,
-          }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "Unable to get a reply.");
-        history = [...history, newMessage({ speakerId: agent.id, speakerName: agent.name, text: payload.text })];
-        setMessages(history);
-      } catch (error) {
+    if (turnMode === "fast") {
+      setRunningAgentIds(activeAgents.map((agent) => agent.id));
+      await Promise.all(activeAgents.map(async (agent) => {
+        try {
+          const message = await requestAgent(agent, baseHistory, systemPrompt, controller);
+          if (message && !controller.signal.aborted) setMessages((current) => [...current, message]);
+        } finally {
+          markRunning(agent.id, false);
+        }
+      }));
+    } else {
+      let history = baseHistory;
+      for (const agent of activeAgents) {
         if (controller.signal.aborted) break;
-        history = [...history, newMessage({ speakerId: agent.id, speakerName: agent.name, text: error instanceof Error ? error.message : "Unable to get a reply.", error: true })];
-        setMessages(history);
+        markRunning(agent.id, true);
+        try {
+          const message = await requestAgent(agent, history, systemPrompt, controller);
+          if (message && !controller.signal.aborted) {
+            history = [...history, message];
+            setMessages(history);
+          }
+        } finally {
+          markRunning(agent.id, false);
+        }
       }
     }
-    setRunningAgentId("");
+    setRunningAgentIds([]);
     abortRef.current = null;
   }
 
-  function stopTurn() { abortRef.current?.abort(); setRunningAgentId(""); abortRef.current = null; }
+  function stopTurn() { abortRef.current?.abort(); setRunningAgentIds([]); abortRef.current = null; }
   function clearChat() { stopTurn(); setMessages([]); }
   function clearKeys() { setAgents((current) => current.map((agent) => ({ ...agent, apiKey: "" }))); sessionStorage.removeItem(KEY_STORAGE); }
 
@@ -166,11 +196,13 @@ export default function Home() {
           <div className="panelHeading"><div><span className="eyebrow">ROOM SETUP</span><h2>Participants</h2></div><span className="countBadge">{activeAgents.length} active</span></div>
           <div className="controlCard compactControl"><div><label>How many AIs?</label><span className="hint">1–{MAX_AGENTS} active participants</span></div><div className="stepper"><button onClick={() => setActiveCount(activeAgents.length - 1)} disabled={activeAgents.length <= 1}>−</button><strong>{activeAgents.length}</strong><button onClick={() => setActiveCount(activeAgents.length + 1)} disabled={activeAgents.length >= MAX_AGENTS}>+</button></div></div>
           <div className="modeSwitch" role="group" aria-label="Reply style"><button className={mode === "friendly" ? "selected" : ""} onClick={() => setMode("friendly")}>Friendly</button><button className={mode === "expert" ? "selected" : ""} onClick={() => setMode("expert")}>Expert</button></div>
+          <div className="modeSwitch" role="group" aria-label="Reply timing"><button className={turnMode === "fast" ? "selected" : ""} onClick={() => setTurnMode("fast")}>Fast · parallel</button><button className={turnMode === "discussion" ? "selected" : ""} onClick={() => setTurnMode("discussion")}>Discussion</button></div>
+          <span className="hint">Fast starts every AI together. Discussion waits so later AIs can react to earlier replies.</span>
 
           <div className="agentList">
             {agents.map((agent, index) => {
               const provider = PROVIDER_MAP[agent.providerId];
-              const isRunning = runningAgentId === agent.id;
+              const isRunning = runningAgentIds.includes(agent.id);
               return (
                 <article className={`agentCard ${agent.enabled ? "enabled" : "disabled"}`} key={agent.id}>
                   <div className="agentSummary"><div className="avatar" style={{ "--agent-accent": agent.accent }}>{agent.avatar || index + 1}</div><div className="agentIdentity"><input className="nameInput" aria-label="Participant name" value={agent.name} maxLength={30} onChange={(event) => updateAgent(agent.id, { name: event.target.value })}/><span>{isRunning ? "Replying…" : provider?.label}</span></div><label className="toggle"><input type="checkbox" checked={agent.enabled} onChange={(event) => { if (!event.target.checked && activeAgents.length <= 1) return; updateAgent(agent.id, { enabled: event.target.checked }); }}/><span /></label></div>
@@ -189,10 +221,10 @@ export default function Home() {
         </aside>
 
         <section className="chatPanel">
-          <div className="chatToolbar"><div><span className="eyebrow">LIVE ROOM</span><h2>{activeAgents.map((agent) => agent.name || "AI").join(" · ")}</h2></div><button className="ghostButton" onClick={clearChat} disabled={!messages.length && !running}>Clear chat</button></div>
+          <div className="chatToolbar"><div><span className="eyebrow">LIVE ROOM · {turnMode === "fast" ? "FAST" : "DISCUSSION"}</span><h2>{activeAgents.map((agent) => agent.name || "AI").join(" · ")}</h2></div><button className="ghostButton" onClick={clearChat} disabled={!messages.length && !running}>Clear chat</button></div>
           <div className="messageArea">
             {messages.length === 0 ? (
-              <div className="emptyState"><div className="orbitalGraphic"><span className="orbit one"/><span className="orbit two"/><span className="core">AI</span></div><span className="eyebrow">MULTI-MODEL CHAT</span><h3>Ask once. Let the room discuss.</h3><p>Choose how many AIs join the room, give each one a provider and model, then send a single prompt. Replies arrive in order and later AIs can see what earlier AIs said.</p><div className="promptChips">{["Compare two design options", "Review a code idea", "Brainstorm and critique", "Explain a technical problem"].map((prompt) => <button key={prompt} onClick={() => setDraft(prompt)}>{prompt}</button>)}</div></div>
+              <div className="emptyState"><div className="orbitalGraphic"><span className="orbit one"/><span className="orbit two"/><span className="core">AI</span></div><span className="eyebrow">MULTI-MODEL CHAT</span><h3>Ask once. Get the whole room.</h3><p>Choose how many AIs join the room, give each one a provider and model, then send a single prompt. Fast mode runs providers together; Discussion mode lets later AIs see earlier replies.</p><div className="promptChips">{["Compare two design options", "Review a code idea", "Brainstorm and critique", "Explain a technical problem"].map((prompt) => <button key={prompt} onClick={() => setDraft(prompt)}>{prompt}</button>)}</div></div>
             ) : (
               <div className="messageList">
                 {messages.map((message) => {
@@ -200,7 +232,10 @@ export default function Home() {
                   const agent = agents.find((item) => item.id === message.speakerId);
                   return <article className={`messageRow ${isUser ? "userRow" : "aiRow"}`} key={message.id}>{!isUser && <div className="messageAvatar" style={{ "--agent-accent": agent?.accent || "#64748b" }}>{agent?.avatar || "AI"}</div>}<div className={`messageBubble ${message.error ? "errorBubble" : ""}`}><div className="messageMeta"><strong>{message.speakerName}</strong>{!isUser && <span>{PROVIDER_MAP[agent?.providerId]?.label || "AI"}</span>}{!isUser && !message.error && <button onClick={() => navigator.clipboard?.writeText(message.text)}>Copy</button>}</div><div className="messageText">{message.text}</div></div></article>;
                 })}
-                {running && <article className="messageRow aiRow typingRow"><div className="messageAvatar"><span className="typingDot"/></div><div className="messageBubble typingBubble"><strong>{agents.find((agent) => agent.id === runningAgentId)?.name || "AI"}</strong><span className="typing"><i/><i/><i/></span></div></article>}
+                {runningAgentIds.map((id) => {
+                  const agent = agents.find((item) => item.id === id);
+                  return <article className="messageRow aiRow typingRow" key={`typing-${id}`}><div className="messageAvatar" style={{ "--agent-accent": agent?.accent || "#64748b" }}><span className="typingDot"/></div><div className="messageBubble typingBubble"><strong>{agent?.name || "AI"}</strong><span className="typing"><i/><i/><i/></span></div></article>;
+                })}
               </div>
             )}
             <div ref={endRef}/>
@@ -208,7 +243,7 @@ export default function Home() {
           <form className="composer" onSubmit={sendMessage}>
             <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(event); } }} rows={1} placeholder="Message the room…" disabled={running}/>
             {running ? <button type="button" className="stopButton" onClick={stopTurn}>Stop</button> : <button type="submit" className="sendButton" disabled={!draft.trim() || activeAgents.length === 0}>Send</button>}
-            <div className="composerHint">Enter to send · Shift+Enter for a new line · {activeAgents.length} AI{activeAgents.length === 1 ? "" : "s"} will reply</div>
+            <div className="composerHint">Enter to send · Shift+Enter for a new line · {activeAgents.length} AI{activeAgents.length === 1 ? "" : "s"} · {turnMode === "fast" ? "parallel" : "in sequence"}</div>
           </form>
         </section>
       </section>
