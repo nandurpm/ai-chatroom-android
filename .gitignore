@@ -4,3 +4,8 @@ local.properties
 **/build/
 *.jks
 *.keystore
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
