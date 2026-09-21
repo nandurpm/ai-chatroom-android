@@ -7,8 +7,12 @@ import com.google.gson.Gson
  */
 object ContextBudget {
     fun cost(text: String) = text.toByteArray(Charsets.UTF_8).size.toLong()
-    private fun cost(message: Message) = cost(Gson().toJson(mapOf(
-        "speaker" to message.speaker.displayName, "text" to message.text))) + 32
+    private fun cost(message: Message): Long {
+        val json = Gson()
+        val labeled = json.toJson(mapOf("speaker" to message.speaker.displayName, "text" to message.text))
+        // Count nested JSON escaping as well as labels; code with many quotes must not evade the budget.
+        return cost(json.toJson(mapOf("role" to "assistant", "content" to labeled))) + 64
+    }
     fun fit(history: List<Message>, system: String, context: Int, output: Int): List<Message> {
         val available = context.toLong() - output - cost(system) - 512
         require(available > 0) { "System prompt and output reservation exceed the context budget. Reduce output tokens or increase the context budget." }

@@ -70,4 +70,3 @@ class SettingsStore(context: Context) {
             .putString("nvidia_fallback", value.nvidiaFallbackModel).putString("nvidia_model", value.nvidiaModel).putString("gemini_model_v2", value.geminiModel).commit())
     }
 }
-

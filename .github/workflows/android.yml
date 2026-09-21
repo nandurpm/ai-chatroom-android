@@ -42,4 +42,3 @@ jobs:
           gh release create "$RELEASE_TAG" AI-Chatroom.apk SHA256SUMS.txt test-results.tar.gz \
             --target "$GITHUB_SHA" --prerelease --title "AI Chatroom Multi-agent v2.0 - build $GITHUB_RUN_NUMBER" \
             --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Runtime agent profiles, configurable providers, Markdown, bounded context, and confirmed GitHub write proposals. Enter provider keys in Settings."
-

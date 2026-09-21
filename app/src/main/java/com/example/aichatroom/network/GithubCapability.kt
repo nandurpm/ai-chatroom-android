@@ -53,12 +53,19 @@ object GithubProtocol {
 
 /** All endpoints remain on api.github.com; no API accepts a model-supplied URL or token. */
 interface GithubApi {
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @GET("user") suspend fun user(@Header("Authorization") token: String): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @GET("repos/{owner}/{repo}") suspend fun repo(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @GET("repos/{owner}/{repo}/contents/{path}") suspend fun contents(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String, @Path("path") path: String): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @GET("repos/{owner}/{repo}/issues?per_page=20") suspend fun issues(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @GET("repos/{owner}/{repo}/issues/{number}") suspend fun issue(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String, @Path("number") number: Int): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @POST("repos/{owner}/{repo}/issues") suspend fun createIssue(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String, @Body body: Map<String, String>): JsonElement
+    @Headers("Accept: application/vnd.github+json", "X-GitHub-Api-Version: 2026-03-10")
     @PUT("repos/{owner}/{repo}/contents/{path}") suspend fun createFile(@Header("Authorization") token: String, @Path("owner") owner: String, @Path("repo") repo: String, @Path("path") path: String, @Body body: Map<String, String>): JsonElement
 }
 

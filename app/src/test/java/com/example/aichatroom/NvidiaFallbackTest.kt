@@ -73,11 +73,10 @@ class NvidiaFallbackTest {
     }
     @Test fun legacyChatGptMessagesKeepTheirIdentity() {
         val old = Message(speaker = AgentProfile.CHATGPT, text = "Historical OpenAI answer")
-        val request = Transcript.nvidia(listOf(old)).single()
+        val request = Transcript.openAi(listOf(old)).single()
         assertEquals("ChatGPT", AgentProfile.valueOf("CHATGPT").label)
         assertEquals("user", request.role)
         assertEquals("ChatGPT", JsonParser.parseString(request.content).asJsonObject["speaker"].asString)
         assertEquals("gemini-3.6-flash", Preferences().geminiModel)
     }
 }
-

@@ -40,4 +40,3 @@ class TurnEngine(private val store: MessageStore,
         } finally { thinking(null) }
     }
 }
-

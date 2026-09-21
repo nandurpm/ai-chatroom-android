@@ -11,4 +11,3 @@ class ChatApplication : Application() {
     val settings by lazy { SettingsStore(this) }
     val providers by lazy { ProviderFactory() }
 }
-

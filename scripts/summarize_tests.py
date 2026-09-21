@@ -8,5 +8,6 @@ for path in reports:
     for key in totals:
         totals[key] += int(suite.get(key, '0'))
 print('UNIT TEST RESULTS:', totals)
-assert totals['tests'] == 21, 'Expected all 21 unit tests'
+# Keep the original 21 regression cases plus the 23 new behavior/migration tests.
+assert totals['tests'] == 44, 'Expected all 44 unit tests'
 assert totals['failures'] == totals['errors'] == totals['skipped'] == 0

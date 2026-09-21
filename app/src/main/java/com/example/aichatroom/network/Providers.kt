@@ -17,6 +17,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
+/** OpenAI-compatible JSON DTOs; Gson omits null optional overrides. */
 data class OpenAiMessage(val role: String, val content: String, val name: String? = null)
 data class OpenAiRequest(val model: String, val messages: List<OpenAiMessage>,
     @SerializedName("max_tokens") val maxTokens: Int = 8192, val stream: Boolean = false,
@@ -28,6 +29,7 @@ interface OpenAiApi {
     @POST("chat/completions")
     suspend fun complete(@HeaderMap headers: Map<String, String>, @Body request: OpenAiRequest): OpenAiResponse
 }
+/** Gemini uses role/parts contents rather than chat-completions messages. */
 data class Part(val text: String? = null, val thought: Boolean? = null)
 data class Content(val role: String? = null, val parts: List<Part>)
 data class ThinkingConfig(val thinkingLevel: String)
@@ -56,9 +58,10 @@ interface GeminiApi {
 }
 class UserFacingException(message: String) : Exception(message)
 
+/** Encodes names as JSON data and maps only this agent's own stable ID to the assistant role. */
 object Transcript {
-    fun nvidia(history: List<Message>, self: AgentProfile = AgentProfile.NVIDIA) = history.filterNot { it.error }.map {
-        // NVIDIA sees its own previous replies as assistant; peers remain named data.
+    fun openAi(history: List<Message>, self: AgentProfile = AgentProfile.NVIDIA) = history.filterNot { it.error }.map {
+        // This agent sees its own previous replies as assistant; peers remain named data.
         OpenAiMessage(if (it.speaker.id == self.id) "assistant" else "user",
             Gson().toJson(mapOf("speaker" to it.speaker.label, "text" to it.text)))
     }
@@ -75,6 +78,7 @@ object Transcript {
         return result
     }
 }
+/** Sanitized diagnostics never expose raw HTTP bodies or credentials. */
 object ApiErrors {
     fun describe(e: Exception): String = when (e) {
         is IllegalArgumentException -> e.message ?: "Check the context budget in Settings."
@@ -121,7 +125,7 @@ class OpenAiCompatibleParticipant(private val api: OpenAiApi, override val speak
         val budget = config.maxTokens ?: maxTokens
         val prompt = ReplyTuning.prompt(systemPrompt, quickReplies)
         val history = ContextBudget.fit(conversationHistory, prompt, config.contextTokens, budget)
-        val messages = listOf(OpenAiMessage("system", prompt)) + Transcript.nvidia(history, speaker)
+        val messages = listOf(OpenAiMessage("system", prompt)) + Transcript.openAi(history, speaker)
         suspend fun request(model: String): String {
             val thinking = config.thinking?.let { mapOf("enable_thinking" to it) }
                 ?: ReplyTuning.nvidia(model, quickReplies)
@@ -154,6 +158,7 @@ fun authHeaders(config: ProviderConfig, secret: String): Map<String, String> {
         AuthStyle.NONE -> emptyMap()
     }
 }
+/** Gemini adapter shares the same profile, budget and auth configuration as compatible providers. */
 class GeminiParticipant(private val api: GeminiApi, private val key: () -> String,
     private val model: String, private val quickReplies: Boolean = true,
     private val maxTokens: Int = 2048,

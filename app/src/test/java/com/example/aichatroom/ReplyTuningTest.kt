@@ -32,4 +32,3 @@ class ReplyTuningTest {
         assertEquals("original", ReplyTuning.prompt("original", false))
     }
 }
-

@@ -92,4 +92,3 @@ class ProviderTest {
         catch (_: CancellationException) { assertEquals(1, calls) }
     }
 }
-

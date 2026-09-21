@@ -83,4 +83,3 @@ class TurnEngineTest {
         assertNull(thinking)
     }
 }
-
