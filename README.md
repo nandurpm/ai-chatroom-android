@@ -96,7 +96,7 @@ The suite has **45 tests: the original 21 scenarios plus 24 new tests**. The exi
 | 4. Arbitrary roster | `TurnEngineTest`: same six ordering/error/cancellation/deadline scenarios using profiles | Three-agent turn/peer visibility, full-roster and solo prompts |
 | 5. Rich content | None | `MarkdownTest`: required blocks, exact code whitespace, unfinished fences, emphasis/escapes, escaped table pipes, non-mutating highlighting |
 | 6. Settings/theme/status | None | Light/dark avatar contrast; UI/device checklist below remains manual |
-| 7. GitHub | None | `GithubCapabilityTest`: explicit protocol parsing, path restrictions, reject/clear, per-message/repository approval binding, no replay, no write through read path, exact REST body/header |
+| 7. GitHub | None | `GithubCapabilityTest`: explicit protocol parsing, path restrictions, reject/clear, per-message/repository approval binding, no replay, no write through read path, exact REST body/header, create-only file payload without SHA, decoded file reads and bounded issue listing |
 | 8. Context | Existing provider contract assertions retained | Latest human retention, original-history preservation, Unicode byte cost, oversized input, system/output reservation, error exclusion |
 
 Manual device checks before release: upgrade a populated v1 install; add/rename/recolor/remove agents; restart to check persistence; verify dark/light layout and table scrolling; copy code; test custom/cloud/Ollama keys; stop/clear during a response; verify GitHub reject/confirm/double tap/disconnect/process-death cases on a disposable repository. Android Keystore hardware behavior and Compose interactions require device validation; JVM tests do not replace it.
