@@ -56,6 +56,7 @@ function geminiContents(history, agent) {
 
 function friendlyError(status) {
   if (status === 401 || status === 403) return "API key rejected or this model is not available to the account.";
+  if (status === 402) return "Provider requires billing or available credits. For Cerebras, check the Cloud Console credit balance/payment setup, then try again.";
   if (status === 429) return "Provider rate limit or quota reached. Try again after checking the account limits.";
   if (status === 400 || status === 413) return "The provider rejected the request. Check the model name or start a shorter chat.";
   if (status === 404 || status === 410) return "Model not found. Update the model ID for this participant.";
