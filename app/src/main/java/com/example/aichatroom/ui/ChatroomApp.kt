@@ -25,6 +25,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -151,7 +163,10 @@ private fun ChatScreen(state: ChatState, vm: ChatViewModel, onSettings: () -> Un
     val preferences = state.preferences
     LaunchedEffect(state.messages.size, state.thinking) {
         val count = state.messages.size + if (state.thinking != null) 1 else 0
-        if (count > 0) listState.animateScrollToItem(count - 1)
+        if (count > 0) {
+            // A short tween feels intentional without making rapid replies lag behind.
+            listState.animateScrollToItem(count - 1)
+        }
     }
     Column(Modifier.fillMaxSize()) {
         RoomControls(state, vm, onSettings)
@@ -164,13 +179,20 @@ private fun ChatScreen(state: ChatState, vm: ChatViewModel, onSettings: () -> Un
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                items(state.messages, key = { it.id }) { MessageBubble(it, onSettings) }
+                items(state.messages, key = { it.id }) {
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(animationSpec = tween(260)) + slideInVertically(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetY = { it / 3 }
+                        ),
+                        exit = fadeOut(animationSpec = tween(160)) + slideOutVertically(
+                            animationSpec = tween(160), targetOffsetY = { -it / 4 }
+                        )
+                    ) { MessageBubble(it, onSettings) }
+                }
                 if (state.thinking != null) item(key = "thinking") {
-                    Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Avatar(state.thinking)
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text("${state.thinking.label} is thinking…", style = MaterialTheme.typography.bodySmall)
-                    }
+                    TypingIndicator(state.thinking)
                 }
             }
         }
@@ -191,6 +213,29 @@ private fun ChatScreen(state: ChatState, vm: ChatViewModel, onSettings: () -> Un
                 modifier = Modifier.size(52.dp)
             ) { Icon(Icons.AutoMirrored.Filled.Send, "Send message") }
         }
+    }
+}
+
+@Composable
+private fun TypingIndicator(speaker: Speaker) {
+    val transition = rememberInfiniteTransition(label = "typing")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+        label = "typingPulse"
+    )
+    Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Avatar(speaker)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(3) { index ->
+                Box(
+                    Modifier.size(6.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = if (index == 1) pulse else 0.45f), CircleShape)
+                )
+            }
+        }
+        Text("${speaker.label} is thinking…", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -260,7 +305,7 @@ private fun MessageBubble(message: Message, onSettings: () -> Unit) {
                 Text(message.speaker.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Text("· ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Surface(shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp), color = when { message.error -> MaterialTheme.colorScheme.errorContainer; user -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surfaceVariant }) {
+            Surface(shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp), color = when { message.error -> MaterialTheme.colorScheme.errorContainer; user -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surfaceVariant }, modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
                 Column(Modifier.padding(14.dp)) {
                     SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
                     if (message.error) TextButton(onClick = onSettings) { Text("Open Settings") }
