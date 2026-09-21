@@ -4,6 +4,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.kapt")
 }
+
+val releaseStorePath = System.getenv("AI_CHATROOM_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("AI_CHATROOM_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("AI_CHATROOM_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("AI_CHATROOM_KEY_PASSWORD")
+val hasReleaseSigning = listOf(releaseStorePath, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+    .all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.example.aichatroom"
     compileSdk = 35
@@ -11,9 +19,25 @@ android {
         applicationId = "com.example.aichatroom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "2.0.0-Agents"
+        versionCode = System.getenv("AI_CHATROOM_VERSION_CODE")?.toIntOrNull() ?: 5
+        versionName = System.getenv("AI_CHATROOM_VERSION_NAME") ?: "2.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
