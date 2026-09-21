@@ -86,6 +86,7 @@ object ApiErrors {
         is UserFacingException -> e.message ?: "Unable to get a reply."
         is HttpException -> when (e.code()) {
             401, 403 -> "API key rejected or access denied. Open Settings to check your key and model access."
+            402 -> "Provider requires billing or available credits. For Cerebras, check the Cloud Console credit balance/payment setup, then try again."
             429 -> "Rate limit or quota reached. Wait, check API billing/quota, then try again."
             400, 413 -> "Request rejected. Check the model in Settings; if this chat is too long, start a new chat."
             404, 410 -> "Model not available. Update the model ID in Settings."
