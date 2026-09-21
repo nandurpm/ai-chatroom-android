@@ -82,4 +82,29 @@ class TurnEngineTest {
         assertEquals(1, fast.seen.single().size)
         assertNull(thinking)
     }
+    @Test fun fastModeStartsEveryoneAndPublishesFastReplyWithoutWaitingForSlowProvider() = runTest {
+        val store = MemoryStore()
+        val slow = Fake(AgentProfile.NVIDIA) { delay(100_000); "late" }
+        val fast = Fake(AgentProfile.GEMINI) { delay(1_000); "ready fast" }
+        val responding = mutableSetOf<String>()
+        val job = launch {
+            TurnEngine(store, reverseOrder = { false }).run(listOf(slow, fast), Mode.FRIENDLY,
+                {}, { "error" }, parallel = true, status = { agent, active ->
+                    if (active) responding += agent.id else responding -= agent.id
+                })
+        }
+        runCurrent()
+        assertEquals(1, slow.seen.single().size)
+        assertEquals(1, fast.seen.single().size)
+        assertEquals(setOf(slow.speaker.id, fast.speaker.id), responding)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(store.messages.any { it.text == "ready fast" })
+        assertFalse(store.messages.any { it.speaker.id == slow.speaker.id })
+        assertEquals(setOf(slow.speaker.id), responding)
+        advanceTimeBy(89_000)
+        job.join()
+        assertTrue(store.messages.last { it.speaker.id == slow.speaker.id }.error)
+        assertTrue(responding.isEmpty())
+    }
 }
