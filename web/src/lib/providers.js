@@ -41,7 +41,7 @@ export const PROVIDERS = [
     shape: "openai",
     auth: "bearer",
     accent: "#22c55e",
-    note: "Very fast inference; trial/account limits may apply.",
+    note: "Very fast inference. HTTP 402 means the account needs usable credits or billing setup in Cerebras Cloud Console.",
   },
   {
     id: "huggingface",
