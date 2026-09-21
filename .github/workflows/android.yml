@@ -1,4 +1,4 @@
-name: Android debug build
+name: Android build
 on:
   workflow_dispatch:
   push:
@@ -21,25 +21,57 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Install Android SDK
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Run tests and build debug APK
+      - name: Prepare version and optional stable signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "AI_CHATROOM_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "AI_CHATROOM_VERSION_NAME=2.1.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            KEYSTORE_PATH="$RUNNER_TEMP/ai-chatroom-release.jks"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            echo "AI_CHATROOM_SIGNED=true" >> "$GITHUB_ENV"
+            echo "AI_CHATROOM_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+          else
+            echo "AI_CHATROOM_SIGNED=false" >> "$GITHUB_ENV"
+            echo "Stable signing secrets are not configured; producing a debug APK that is not guaranteed to update an older build." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Run tests and build APK
+        env:
+          AI_CHATROOM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          AI_CHATROOM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          AI_CHATROOM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest
+          if [ "$AI_CHATROOM_SIGNED" = "true" ]; then
+            ./gradlew --no-daemon assembleRelease
+            echo "AI_CHATROOM_APK=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_ENV"
+            echo "AI_CHATROOM_BUILD_KIND=stable-signed" >> "$GITHUB_ENV"
+          else
+            ./gradlew --no-daemon assembleDebug
+            echo "AI_CHATROOM_APK=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_ENV"
+            echo "AI_CHATROOM_BUILD_KIND=debug" >> "$GITHUB_ENV"
+          fi
       - name: Verify APK and summarize tests
         run: |
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$AI_CHATROOM_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$AI_CHATROOM_APK" | head -5
           python3 scripts/summarize_tests.py
-          stat --format="APK size: %s bytes" app/build/outputs/apk/debug/app-debug.apk
-          cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom.apk
+          stat --format="APK size: %s bytes" "$AI_CHATROOM_APK"
+          cp "$AI_CHATROOM_APK" AI-Chatroom.apk
           sha256sum AI-Chatroom.apk > SHA256SUMS.txt
           tar -czf test-results.tar.gz -C app/build/reports/tests testDebugUnitTest
+          echo "Build: $AI_CHATROOM_BUILD_KIND · versionCode $AI_CHATROOM_VERSION_CODE · versionName $AI_CHATROOM_VERSION_NAME" >> "$GITHUB_STEP_SUMMARY"
       - name: Attach APK to repository release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: debug-${{ github.run_number }}
+          RELEASE_TAG: build-${{ github.run_number }}
         run: |
           gh release create "$RELEASE_TAG" AI-Chatroom.apk SHA256SUMS.txt test-results.tar.gz \
-            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom Multi-agent v2.0 - build $GITHUB_RUN_NUMBER" \
-            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Runtime agent profiles, configurable providers, Markdown, bounded context, and confirmed GitHub write proposals. Enter provider keys in Settings."
+            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom $AI_CHATROOM_VERSION_NAME ($AI_CHATROOM_BUILD_KIND)" \
+            --notes "APK built from $GITHUB_SHA. Build type: $AI_CHATROOM_BUILD_KIND. Fast parallel multi-AI replies are enabled by default. If this release is stable-signed, later releases signed with the same keystore can install as normal updates without uninstalling."
