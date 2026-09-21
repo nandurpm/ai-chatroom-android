@@ -2,6 +2,7 @@ package com.example.aichatroom.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,6 +11,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -17,6 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -24,6 +42,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.aichatroom.domain.*
 import com.example.aichatroom.network.PendingGithubWrite
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.sin
 
 /** Chat and settings share a single state owner so navigation cannot start duplicate turns. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,11 +63,27 @@ fun ChatroomApp(vm: ChatViewModel) {
             state.notice?.let { Text(it, Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp)) }
             if (settings) SettingsScreen(state, vm) else {
                 val list = rememberLazyListState()
-                LaunchedEffect(state.messages.size) { if (state.messages.isNotEmpty()) list.animateScrollToItem(state.messages.lastIndex) }
+                var input by rememberSaveable { mutableStateOf("") }
+                var voiceMode by rememberSaveable { mutableStateOf(false) }
+                var voicePreview by rememberSaveable { mutableStateOf(false) }
+                var feedbackBaseline by remember { mutableIntStateOf(-1) }
+                val haptics = LocalHapticFeedback.current
+                val view = LocalView.current
+                LaunchedEffect(state.messages.size) {
+                    if (feedbackBaseline == -1) feedbackBaseline = state.messages.size
+                    else if (state.messages.size > feedbackBaseline) {
+                        state.messages.lastOrNull()?.takeIf { it.speaker.id != AgentProfile.USER.id }?.let {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            view.playSoundEffect(android.view.SoundEffectConstants.NAVIGATION_DOWN)
+                        }
+                        feedbackBaseline = state.messages.size
+                    }
+                    if (state.messages.isNotEmpty()) list.animateScrollToItem(state.messages.lastIndex)
+                }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (state.messages.isEmpty()) item { Text("Your room, your agents. Add providers in Settings, then start a conversation.", style = MaterialTheme.typography.titleMedium) }
                     items(state.messages, key = { it.id }) { message ->
-                        MessageBubble(message)
+                        AnimatedVisibility(visible = true, enter = fadeIn(tween(260)) + slideInVertically(tween(300, easing = FastOutSlowInEasing), initialOffsetY = { it / 3 })) { MessageBubble(message) }
                         state.proposals.find { it.messageId == message.id }?.let { proposal ->
                             OutlinedCard(Modifier.fillMaxWidth()) {
                                 Column(Modifier.padding(12.dp)) {
@@ -70,11 +106,12 @@ fun ChatroomApp(vm: ChatViewModel) {
                         }
                     }
                 }
-                var input by rememberSaveable { mutableStateOf("") }
-                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (voiceMode || voicePreview) VoiceMessageComposer(voiceMode, { voiceMode = false; voicePreview = true }, { voiceMode = false; voicePreview = false }, { voicePreview = false; voiceMode = true })
+                else Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); voiceMode = true }) { Icon(Icons.Default.Mic, "Record voice message") }
                     OutlinedTextField(input, { input = it }, Modifier.weight(1f), placeholder = { Text("Message the room") }, maxLines = 5)
                     if (state.busy) TextButton(onClick = vm::stop) { Text("Stop") }
-                    else TextButton(onClick = { if (vm.send(input)) input = "" }, enabled = state.ready && input.isNotBlank()) { Text("Send") }
+                    else TextButton(onClick = { if (vm.send(input)) { haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); view.playSoundEffect(android.view.SoundEffectConstants.CLICK); input = "" } }, enabled = state.ready && input.isNotBlank()) { Text("Send") }
                 }
             }
         }
@@ -109,6 +146,36 @@ private fun MessageBubble(message: Message) {
         Surface(Modifier.padding(top = 6.dp).widthIn(max = 680.dp), shape = MaterialTheme.shapes.medium,
             color = if (message.error) MaterialTheme.colorScheme.errorContainer else if (human) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
             Column(Modifier.padding(14.dp)) { if (message.error) Text(message.text) else MarkdownContent(message.text) }
+        }
+    }
+}
+
+@Composable
+private fun VoiceMessageComposer(recording: Boolean, onStop: () -> Unit, onDiscard: () -> Unit, onStart: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "voiceWaveform")
+    val phase by transition.animateFloat(0f, (Math.PI * 2).toFloat(), infiniteRepeatable(tween(1200, easing = FastOutSlowInEasing), RepeatMode.Restart), label = "wavePhase")
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            IconButton(onClick = onDiscard) { Icon(Icons.Default.Close, "Discard voice message") }
+            Column(Modifier.weight(1f)) {
+                Text(if (recording) "Recording voice message" else "Voice message preview", style = MaterialTheme.typography.labelLarge)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { VoiceWaveform(phase, recording); Text(if (recording) "Listening…" else "Ready to send", style = MaterialTheme.typography.bodySmall) }
+            }
+            FilledIconButton(onClick = if (recording) onStop else onStart, modifier = Modifier.size(44.dp)) { Icon(if (recording) Icons.Default.Stop else Icons.Default.Mic, if (recording) "Stop recording" else "Record again") }
+        }
+    }
+}
+
+@Composable
+private fun VoiceWaveform(phase: Float, active: Boolean) {
+    val waveformColor = MaterialTheme.colorScheme.primary
+    Canvas(Modifier.width(112.dp).height(30.dp)) {
+        val bars = 20
+        val gap = size.width / bars
+        repeat(bars) { index ->
+            val wave = abs(sin((phase + index * 0.55f).toDouble())).toFloat()
+            val height = size.height * (0.22f + wave * if (active) 0.7f else 0.38f)
+            drawLine(waveformColor, androidx.compose.ui.geometry.Offset(index * gap + gap / 2, (size.height - height) / 2), androidx.compose.ui.geometry.Offset(index * gap + gap / 2, (size.height + height) / 2), 3.dp.toPx(), StrokeCap.Round)
         }
     }
 }
