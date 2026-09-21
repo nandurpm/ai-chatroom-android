@@ -1,0 +1,84 @@
+export const PROVIDERS = [
+  {
+    id: "groq",
+    label: "Groq",
+    shortLabel: "G",
+    baseUrl: "https://api.groq.com/openai/v1/",
+    model: "openai/gpt-oss-20b",
+    shape: "openai",
+    auth: "bearer",
+    accent: "#f97316",
+    note: "Fast OpenAI-compatible inference. Provider quotas apply.",
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter Free",
+    shortLabel: "OR",
+    baseUrl: "https://openrouter.ai/api/v1/",
+    model: "openrouter/free",
+    shape: "openai",
+    auth: "bearer",
+    accent: "#8b5cf6",
+    note: "Routes to currently available zero-priced models. Availability varies.",
+  },
+  {
+    id: "google",
+    label: "Google AI Studio",
+    shortLabel: "Gm",
+    baseUrl: "https://generativelanguage.googleapis.com/",
+    model: "gemini-3.5-flash-lite",
+    shape: "gemini",
+    auth: "google-key",
+    accent: "#4285f4",
+    note: "Gemini API via Google AI Studio. Account and regional quotas apply.",
+  },
+  {
+    id: "cerebras",
+    label: "Cerebras",
+    shortLabel: "C",
+    baseUrl: "https://api.cerebras.ai/v1/",
+    model: "gpt-oss-120b",
+    shape: "openai",
+    auth: "bearer",
+    accent: "#22c55e",
+    note: "Very fast inference; trial/account limits may apply.",
+  },
+  {
+    id: "huggingface",
+    label: "Hugging Face",
+    shortLabel: "HF",
+    baseUrl: "https://router.huggingface.co/v1/",
+    model: "Qwen/Qwen2.5-Coder-32B-Instruct",
+    shape: "openai",
+    auth: "bearer",
+    accent: "#eab308",
+    note: "Inference Providers router. Credits and live model availability vary.",
+  },
+  {
+    id: "nvidia",
+    label: "NVIDIA",
+    shortLabel: "N",
+    baseUrl: "https://integrate.api.nvidia.com/v1/",
+    model: "nvidia/nemotron-3-super-120b-a12b",
+    shape: "openai",
+    auth: "bearer",
+    accent: "#76b900",
+    note: "NVIDIA Build endpoint. Model availability depends on the account.",
+  },
+];
+
+export const PROVIDER_MAP = Object.fromEntries(PROVIDERS.map((provider) => [provider.id, provider]));
+
+export function makeAgent(index = 0) {
+  const provider = PROVIDERS[index % PROVIDERS.length];
+  return {
+    id: `agent-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
+    name: provider.label.replace(" Free", ""),
+    avatar: provider.shortLabel,
+    providerId: provider.id,
+    model: provider.model,
+    enabled: true,
+    accent: provider.accent,
+    apiKey: "",
+  };
+}
