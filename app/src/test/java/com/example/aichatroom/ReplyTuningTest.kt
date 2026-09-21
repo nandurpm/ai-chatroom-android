@@ -12,7 +12,7 @@ class ReplyTuningTest {
         val prefs = Preferences()
         assertTrue(prefs.quickReplies)
         for (model in listOf(prefs.nvidiaModel, prefs.nvidiaFallbackModel)) {
-            val request = NvidiaRequest(model, emptyList(), chatTemplateKwargs = ReplyTuning.nvidia(model, true))
+            val request = OpenAiRequest(model, emptyList(), chatTemplateKwargs = ReplyTuning.nvidia(model, true))
             val json = JsonParser.parseString(Gson().toJson(request)).asJsonObject
             assertFalse(json["chat_template_kwargs"].asJsonObject["enable_thinking"].asBoolean)
         }
@@ -32,3 +32,4 @@ class ReplyTuningTest {
         assertEquals("original", ReplyTuning.prompt("original", false))
     }
 }
+

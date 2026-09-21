@@ -17,16 +17,16 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-data class NvidiaMessage(val role: String, val content: String, val name: String? = null)
-data class NvidiaRequest(val model: String, val messages: List<NvidiaMessage>,
+data class OpenAiMessage(val role: String, val content: String, val name: String? = null)
+data class OpenAiRequest(val model: String, val messages: List<OpenAiMessage>,
     @SerializedName("max_tokens") val maxTokens: Int = 8192, val stream: Boolean = false,
     @SerializedName("chat_template_kwargs") val chatTemplateKwargs: Map<String, Boolean>? = null)
-data class NvidiaResponse(val choices: List<NvidiaChoice>?)
-data class NvidiaChoice(val message: NvidiaAnswer?)
-data class NvidiaAnswer(val content: String?, val refusal: String?)
-interface NvidiaApi {
-    @POST("v1/chat/completions")
-    suspend fun complete(@Header("Authorization") authorization: String, @Body request: NvidiaRequest): NvidiaResponse
+data class OpenAiResponse(val choices: List<OpenAiChoice>?)
+data class OpenAiChoice(val message: OpenAiAnswer?)
+data class OpenAiAnswer(val content: String?, val refusal: String?)
+interface OpenAiApi {
+    @POST("chat/completions")
+    suspend fun complete(@HeaderMap headers: Map<String, String>, @Body request: OpenAiRequest): OpenAiResponse
 }
 data class Part(val text: String? = null, val thought: Boolean? = null)
 data class Content(val role: String? = null, val parts: List<Part>)
@@ -51,21 +51,21 @@ data class Candidate(val content: Content?, val finishReason: String?)
 data class GeminiResponse(val candidates: List<Candidate>?)
 interface GeminiApi {
     @POST("v1beta/models/{model}:generateContent")
-    suspend fun generate(@Path("model") model: String, @Header("x-goog-api-key") key: String,
+    suspend fun generate(@Path("model") model: String, @HeaderMap headers: Map<String, String>,
         @Body request: GeminiRequest): GeminiResponse
 }
 class UserFacingException(message: String) : Exception(message)
 
 object Transcript {
-    fun nvidia(history: List<Message>) = history.filterNot { it.error }.map {
+    fun nvidia(history: List<Message>, self: AgentProfile = AgentProfile.NVIDIA) = history.filterNot { it.error }.map {
         // NVIDIA sees its own previous replies as assistant; peers remain named data.
-        NvidiaMessage(if (it.speaker == Speaker.NVIDIA) "assistant" else "user",
+        OpenAiMessage(if (it.speaker.id == self.id) "assistant" else "user",
             Gson().toJson(mapOf("speaker" to it.speaker.label, "text" to it.text)))
     }
-    fun gemini(history: List<Message>): List<Content> {
+    fun gemini(history: List<Message>, self: AgentProfile = AgentProfile.GEMINI): List<Content> {
         val result = mutableListOf<Content>()
         history.filterNot { it.error }.forEach {
-            val role = if (it.speaker == Speaker.GEMINI) "model" else "user"
+            val role = if (it.speaker.id == self.id) "model" else "user"
             // JSON encoding keeps speaker names separate from message text.
             val text = Gson().toJson(mapOf("speaker" to it.speaker.label, "text" to it.text))
             val previous = result.lastOrNull()
@@ -77,6 +77,7 @@ object Transcript {
 }
 object ApiErrors {
     fun describe(e: Exception): String = when (e) {
+        is IllegalArgumentException -> e.message ?: "Check the context budget in Settings."
         is UserFacingException -> e.message ?: "Unable to get a reply."
         is HttpException -> when (e.code()) {
             401, 403 -> "API key rejected or access denied. Open Settings to check your key and model access."
@@ -109,62 +110,84 @@ suspend fun <T> withRetry(block: suspend () -> T): T {
     }
     error("Unreachable")
 }
-class NvidiaParticipant(private val api: NvidiaApi, private val key: () -> String,
-    private val model: String,
-    private val fallbackModel: String = "qwen/qwen3.5-397b-a17b",
-    private val quickReplies: Boolean = true, private val maxTokens: Int = 2048) : AIParticipant {
-    override val speaker = Speaker.NVIDIA
+/** One implementation serves all OpenAI-compatible endpoints, including NVIDIA. */
+class OpenAiCompatibleParticipant(private val api: OpenAiApi, override val speaker: AgentProfile,
+    private val key: () -> String, private val quickReplies: Boolean = true,
+    private val maxTokens: Int = 2048) : AIParticipant {
+    private val config get() = speaker.providerConfig
     override suspend fun getResponse(conversationHistory: List<Message>, systemPrompt: String): String {
         val secret = withContext(Dispatchers.IO) { key() }
-        if (secret.isBlank()) throw UserFacingException("Add your NVIDIA API key in Settings. OpenAI credits are not needed.")
-        val messages = listOf(NvidiaMessage("system", ReplyTuning.prompt(systemPrompt, quickReplies))) + Transcript.nvidia(conversationHistory)
-        suspend fun request(modelId: String): String {
-            val response = withRetry { api.complete("Bearer $secret", NvidiaRequest(modelId, messages, maxTokens = maxTokens,
-                chatTemplateKwargs = ReplyTuning.nvidia(modelId, quickReplies))) }
-            val answer = response.choices?.firstOrNull()?.message
-            // Reasoning-only/empty content is not shown as a completed answer.
+        val headers = authHeaders(config, secret)
+        val budget = config.maxTokens ?: maxTokens
+        val prompt = ReplyTuning.prompt(systemPrompt, quickReplies)
+        val history = ContextBudget.fit(conversationHistory, prompt, config.contextTokens, budget)
+        val messages = listOf(OpenAiMessage("system", prompt)) + Transcript.nvidia(history, speaker)
+        suspend fun request(model: String): String {
+            val thinking = config.thinking?.let { mapOf("enable_thinking" to it) }
+                ?: ReplyTuning.nvidia(model, quickReplies)
+            val result = withRetry { api.complete(headers, OpenAiRequest(model, messages,
+                maxTokens = budget, chatTemplateKwargs = thinking)) }
+            val answer = result.choices?.firstOrNull()?.message
             return answer?.content?.takeIf { it.isNotBlank() } ?: answer?.refusal?.takeIf { it.isNotBlank() }
-                ?: throw UserFacingException("NVIDIA returned no answer text. Try again or choose another model in Settings.")
+                ?: throw UserFacingException("${speaker.label} returned no answer text. Check the model in Settings.")
         }
-        return try { request(model) } catch (e: HttpException) {
-            if (e.code() !in listOf(404, 410) || fallbackModel == model || fallbackModel.isBlank()) throw e
-            // One model switch only; auth/quota/server errors do not switch models.
-            try { "[NVIDIA fallback: $fallbackModel]\n\n" + request(fallbackModel) }
-            catch (fallbackError: HttpException) {
-                if (fallbackError.code() in listOf(404, 410)) throw UserFacingException(
-                    "Both NVIDIA models are unavailable. Select an active primary/fallback model in Settings; the requested Qwen endpoint is deprecated.")
-                throw fallbackError
+        return try { request(config.modelId) } catch (e: HttpException) {
+            if (e.code() !in listOf(404, 410) || config.fallbackModel.isBlank() || config.fallbackModel == config.modelId) throw e
+            // Only model-not-found errors switch once; retries and cancellation keep their existing behavior.
+            try { "[${speaker.label} fallback: ${config.fallbackModel}]\n\n" + request(config.fallbackModel) }
+            catch (fallback: HttpException) {
+                if (fallback.code() in listOf(404, 410)) throw UserFacingException("Both ${speaker.label} models are unavailable. Change the model IDs in Settings.")
+                throw fallback
             }
         }
     }
 }
+
+/** Headers are attached per request, so no provider or GitHub token can leak to another client. */
+fun authHeaders(config: ProviderConfig, secret: String): Map<String, String> {
+    if (config.authStyle == AuthStyle.NONE) return emptyMap()
+    if (secret.isBlank()) throw UserFacingException("Add your API key in Settings.")
+    return when (config.authStyle) {
+        AuthStyle.BEARER -> mapOf("Authorization" to "Bearer $secret")
+        AuthStyle.GOOGLE_KEY -> mapOf("x-goog-api-key" to secret)
+        AuthStyle.CUSTOM -> mapOf(config.customHeader to secret)
+        AuthStyle.NONE -> emptyMap()
+    }
+}
 class GeminiParticipant(private val api: GeminiApi, private val key: () -> String,
     private val model: String, private val quickReplies: Boolean = true,
-    private val maxTokens: Int = 2048) : AIParticipant {
-    override val speaker = Speaker.GEMINI
+    private val maxTokens: Int = 2048,
+    override val speaker: AgentProfile = AgentProfile.GEMINI) : AIParticipant {
     override suspend fun getResponse(conversationHistory: List<Message>, systemPrompt: String): String {
         val secret = withContext(Dispatchers.IO) { key() }
         if (secret.isBlank()) throw UserFacingException("Add your Gemini API key in Settings to invite Gemini.")
-        val result = withRetry { api.generate(model, secret, GeminiRequest(Transcript.gemini(conversationHistory),
-            Content(parts = listOf(Part(ReplyTuning.prompt(systemPrompt, quickReplies)))),
-            GenerationConfig(maxTokens, ReplyTuning.gemini(model, quickReplies)))) }
+        val config = speaker.providerConfig
+        val budget = config.maxTokens ?: maxTokens
+        val prompt = ReplyTuning.prompt(systemPrompt, quickReplies)
+        val history = ContextBudget.fit(conversationHistory, prompt, config.contextTokens, budget)
+        val result = withRetry { api.generate(model, authHeaders(config, secret), GeminiRequest(Transcript.gemini(history, speaker),
+            Content(parts = listOf(Part(prompt))),
+            GenerationConfig(budget, config.thinkingLevel?.let { ThinkingConfig(it) } ?: ReplyTuning.gemini(model, quickReplies)))) }
         return result.candidates?.firstOrNull()?.content?.parts?.filterNot { it.thought == true }
             ?.mapNotNull { it.text }?.joinToString("\n")?.takeIf { it.isNotBlank() }
             ?: throw UserFacingException("Gemini returned no text or blocked this response. Try rephrasing your message.")
     }
 }
+/** Clients never follow redirects, especially when a custom endpoint receives a secret. */
 class ProviderFactory {
     private val client = OkHttpClient.Builder().connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS).callTimeout(200, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS).callTimeout(90, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build()
-    private fun retrofit(url: String) = Retrofit.Builder().baseUrl(url).client(client)
+    private fun retrofit(url: String) = Retrofit.Builder().baseUrl(url.trimEnd('/') + "/").client(client)
         .addConverterFactory(GsonConverterFactory.create()).build()
-    private val nvidia = retrofit("https://integrate.api.nvidia.com/").create(NvidiaApi::class.java)
-    private val gemini = retrofit("https://generativelanguage.googleapis.com/").create(GeminiApi::class.java)
-    fun create(preferences: Preferences, key: (Speaker) -> String): List<AIParticipant> = buildList {
-        if (preferences.nvidiaEnabled) add(NvidiaParticipant(nvidia, { key(Speaker.NVIDIA) }, preferences.nvidiaModel, preferences.nvidiaFallbackModel,
-            preferences.quickReplies, ReplyTuning.tokens(preferences.quickReplies, preferences.mode)))
-        if (preferences.geminiEnabled) add(GeminiParticipant(gemini, { key(Speaker.GEMINI) }, preferences.geminiModel,
-            preferences.quickReplies, ReplyTuning.tokens(preferences.quickReplies, preferences.mode)))
-    }
+    fun create(profiles: List<AgentProfile>, preferences: Preferences, key: (AgentProfile) -> String): List<AIParticipant> =
+        profiles.filter { it.enabled && !it.archived && it.id != AgentProfile.USER.id }.map { a ->
+            a.providerConfig.validate()
+            val api = retrofit(a.providerConfig.baseUrl)
+            val tokens = ReplyTuning.tokens(preferences.quickReplies, preferences.mode)
+            when (a.providerConfig.shape) {
+                RequestShape.OPENAI -> OpenAiCompatibleParticipant(api.create(OpenAiApi::class.java), a, { key(a) }, preferences.quickReplies, tokens)
+                RequestShape.GEMINI -> GeminiParticipant(api.create(GeminiApi::class.java), { key(a) }, a.providerConfig.modelId, preferences.quickReplies, tokens, a)
+            }
+        }
 }

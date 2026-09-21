@@ -6,8 +6,9 @@ import com.example.aichatroom.data.*
 import com.example.aichatroom.network.ProviderFactory
 
 class ChatApplication : Application() {
-    val database by lazy { Room.databaseBuilder(this, ChatDatabase::class.java, "chat.db").build() }
+    val database by lazy { Room.databaseBuilder(this, ChatDatabase::class.java, "chat.db").addMigrations(ChatDatabase.MIGRATION_1_2).build() }
     val repository by lazy { ChatRepository(database.chatDao()) }
     val settings by lazy { SettingsStore(this) }
     val providers by lazy { ProviderFactory() }
 }
+

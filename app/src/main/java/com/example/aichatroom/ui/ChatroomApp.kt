@@ -2,356 +2,214 @@ package com.example.aichatroom.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.aichatroom.domain.Message
-import com.example.aichatroom.domain.Mode
-import com.example.aichatroom.domain.Speaker
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.example.aichatroom.domain.*
+import com.example.aichatroom.network.PendingGithubWrite
+import java.util.UUID
 
+/** Chat and settings share a single state owner so navigation cannot start duplicate turns. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatroomApp(vm: ChatViewModel) {
     val state by vm.ui.collectAsStateWithLifecycle()
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var confirmClear by remember { mutableStateOf(false) }
-    BackHandler(settingsOpen) { settingsOpen = false }
-
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(if (settingsOpen) "Settings" else "AI Chatroom", fontWeight = FontWeight.Bold)
-                        if (!settingsOpen) Text(
-                            "Two minds. One conversation.",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    if (settingsOpen) IconButton(onClick = { settingsOpen = false }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chat")
-                    }
-                },
-                actions = {
-                    if (!settingsOpen) {
-                        IconButton(
-                            onClick = { confirmClear = true },
-                            enabled = state.messages.isNotEmpty() || state.busy
-                        ) { Icon(Icons.Default.DeleteOutline, "Clear chat") }
-                        IconButton(onClick = { settingsOpen = true }) {
-                            Icon(Icons.Default.Settings, "Settings")
+    var settings by rememberSaveable { mutableStateOf(false) }
+    var clear by remember { mutableStateOf(false) }
+    var confirmation by remember { mutableStateOf<PendingGithubWrite?>(null) }
+    BackHandler(settings) { settings = false }
+    Scaffold(topBar = { TopAppBar(title = { Text(if (settings) "Settings" else "AI Chatroom") },
+        navigationIcon = { if (settings) TextButton(onClick = { settings = false }) { Text("Back") } },
+        actions = {
+            if (!settings) { TextButton(onClick = { clear = true }) { Text("Clear") }; TextButton(onClick = { settings = true }) { Text("Settings") } }
+        }) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            state.notice?.let { Text(it, Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.secondaryContainer).padding(12.dp)) }
+            if (settings) SettingsScreen(state, vm) else {
+                val list = rememberLazyListState()
+                LaunchedEffect(state.messages.size) { if (state.messages.isNotEmpty()) list.animateScrollToItem(state.messages.lastIndex) }
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (state.messages.isEmpty()) item { Text("Your room, your agents. Add providers in Settings, then start a conversation.", style = MaterialTheme.typography.titleMedium) }
+                    items(state.messages, key = { it.id }) { message ->
+                        MessageBubble(message)
+                        state.proposals.find { it.messageId == message.id }?.let { proposal ->
+                            OutlinedCard(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text("GitHub write proposal · ${proposal.repository}", fontWeight = FontWeight.Bold)
+                                    Text("${proposal.action.operation}: ${proposal.action.path.ifBlank { proposal.action.title }}")
+                                    Row { TextButton(onClick = { confirmation = proposal }, enabled = !state.busy) { Text("Review write") }
+                                        TextButton(onClick = { vm.rejectWrite(proposal.messageId) }) { Text("Reject") } }
+                                }
+                            }
                         }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
-            state.notice?.let { notice ->
-                Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Info, null, Modifier.size(16.dp))
-                        Text(notice, style = MaterialTheme.typography.bodySmall)
+                }
+                // Sequential calls still show each participant's own queued/responding state.
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    state.agents.filter { it.id in state.statuses }.forEach { a ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Avatar(a)
+                            if (state.statuses[a.id] == AgentStatus.RESPONDING) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Text("${a.displayName}: ${state.statuses[a.id]?.name?.lowercase()}", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
-            }
-            if (settingsOpen) SettingsScreen(state, vm) else ChatScreen(state, vm) { settingsOpen = true }
-        }
-    }
-    if (confirmClear) AlertDialog(
-        onDismissRequest = { confirmClear = false },
-        title = { Text("Start a fresh conversation?") },
-        text = { Text("This deletes the local chat and stops any reply in progress. Your API keys and preferences are kept.") },
-        confirmButton = { TextButton(onClick = { vm.clear(); confirmClear = false }) { Text("Clear chat") } },
-        dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } }
-    )
-}
-
-@Composable
-private fun ChatScreen(state: ChatState, vm: ChatViewModel, onSettings: () -> Unit) {
-    var draft by rememberSaveable { mutableStateOf("") }
-    val listState = rememberLazyListState()
-    val preferences = state.preferences
-    LaunchedEffect(state.messages.size, state.thinking) {
-        val count = state.messages.size + if (state.thinking != null) 1 else 0
-        if (count > 0) {
-            // A short tween feels intentional without making rapid replies lag behind.
-            listState.animateScrollToItem(count - 1)
-        }
-    }
-    Column(Modifier.fillMaxSize()) {
-        RoomControls(state, vm, onSettings)
-        if (state.messages.isEmpty() && !state.busy) {
-            WelcomePanel(onPrompt = { draft = "Explain Kotlin coroutines, then challenge each other's explanation." })
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(state.messages, key = { it.id }) {
-                    AnimatedVisibility(
-                        visible = true,
-                        enter = fadeIn(animationSpec = tween(260)) + slideInVertically(
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            initialOffsetY = { it / 3 }
-                        ),
-                        exit = fadeOut(animationSpec = tween(160)) + slideOutVertically(
-                            animationSpec = tween(160), targetOffsetY = { -it / 4 }
-                        )
-                    ) { MessageBubble(it, onSettings) }
-                }
-                if (state.thinking != null) item(key = "thinking") {
-                    TypingIndicator(state.thinking)
+                var input by rememberSaveable { mutableStateOf("") }
+                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(input, { input = it }, Modifier.weight(1f), placeholder = { Text("Message the room") }, maxLines = 5)
+                    if (state.busy) TextButton(onClick = vm::stop) { Text("Stop") }
+                    else TextButton(onClick = { if (vm.send(input)) input = "" }, enabled = state.ready && input.isNotBlank()) { Text("Send") }
                 }
             }
         }
-        if (state.busy && state.thinking != null) TextButton(onClick = vm::stop, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("Stop replies") }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f))
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = { draft = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message the room…") },
-                maxLines = 5,
-                shape = RoundedCornerShape(22.dp)
-            )
-            FilledIconButton(
-                onClick = { if (vm.send(draft)) draft = "" },
-                enabled = draft.isNotBlank() && !state.busy && (preferences.nvidiaEnabled || preferences.geminiEnabled),
-                modifier = Modifier.size(52.dp)
-            ) { Icon(Icons.AutoMirrored.Filled.Send, "Send message") }
+    }
+    if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("Clear chat?") }, text = { Text("This deletes local messages and pending proposals.") },
+        confirmButton = { TextButton(onClick = { vm.clear(); clear = false }) { Text("Clear") } }, dismissButton = { TextButton(onClick = { clear = false }) { Text("Cancel") } })
+    confirmation?.let { proposal ->
+        AlertDialog(onDismissRequest = { confirmation = null }, title = { Text("Confirm GitHub write") },
+            text = { Column(Modifier.heightIn(max = 450.dp).verticalScroll(rememberScrollState())) {
+                Text("Agent: ${proposal.agentName}\nRepository: ${proposal.repository}\nTarget: default branch\nAction: ${proposal.action.operation}\nPath: ${proposal.action.path}\nTitle: ${proposal.action.title}")
+                HorizontalDivider(Modifier.padding(vertical = 10.dp)); Text(proposal.action.body)
+            } },
+            confirmButton = { TextButton(onClick = { vm.confirmWrite(proposal.messageId); confirmation = null }, enabled = !state.busy && state.proposals.any { it == proposal }) { Text("Confirm this write") } },
+            dismissButton = { TextButton(onClick = { confirmation = null }) { Text("Cancel") } })
+    }
+}
+
+/** Custom avatar colors never control body text contrast. */
+@Composable
+private fun Avatar(a: AgentProfile) {
+    Box(Modifier.size(32.dp).background(a.color, CircleShape), contentAlignment = Alignment.Center) {
+        Text(a.avatarLetter, color = avatarTextColor(a.color), fontWeight = FontWeight.Bold)
+    }
+}
+@Composable
+private fun MessageBubble(message: Message) {
+    val human = message.speaker.id == AgentProfile.USER.id
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (human) Alignment.End else Alignment.Start) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Avatar(message.speaker); Text(message.speaker.displayName, style = MaterialTheme.typography.labelLarge)
+        }
+        Surface(Modifier.padding(top = 6.dp).widthIn(max = 680.dp), shape = MaterialTheme.shapes.medium,
+            color = if (message.error) MaterialTheme.colorScheme.errorContainer else if (human) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer) {
+            Column(Modifier.padding(14.dp)) { if (message.error) Text(message.text) else MarkdownContent(message.text) }
         }
     }
 }
 
-@Composable
-private fun TypingIndicator(speaker: Speaker) {
-    val transition = rememberInfiniteTransition(label = "typing")
-    val pulse by transition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
-        label = "typingPulse"
-    )
-    Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Avatar(speaker)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(3) { index ->
-                Box(
-                    Modifier.size(6.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = if (index == 1) pulse else 0.45f), CircleShape)
-                )
-            }
-        }
-        Text("${speaker.label} is thinking…", style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun RoomControls(state: ChatState, vm: ChatViewModel, onSettings: () -> Unit) {
-    val preferences = state.preferences
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = MaterialTheme.shapes.medium) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Box(Modifier.size(38.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Conversation style", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(if (preferences.mode == Mode.FRIENDLY) "Light banter and quick perspectives" else "Detailed answers and careful reasoning", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-                }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = preferences.mode == Mode.FRIENDLY, enabled = !state.busy, onClick = { vm.updatePreferences(preferences.copy(mode = Mode.FRIENDLY)) }, label = { Text("Friendly") })
-            FilterChip(selected = preferences.mode == Mode.EXPERT, enabled = !state.busy, onClick = { vm.updatePreferences(preferences.copy(mode = Mode.EXPERT)) }, label = { Text("Expert") })
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ParticipantChip(Speaker.NVIDIA, preferences.nvidiaEnabled, !state.busy) { vm.updatePreferences(preferences.copy(nvidiaEnabled = !preferences.nvidiaEnabled)) }
-            ParticipantChip(Speaker.GEMINI, preferences.geminiEnabled, !state.busy) { vm.updatePreferences(preferences.copy(geminiEnabled = !preferences.geminiEnabled)) }
-        }
-        if ((preferences.nvidiaEnabled && !state.nvidiaKeySaved) || (preferences.geminiEnabled && !state.geminiKeySaved)) {
-            TextButton(onClick = onSettings, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Connect a provider to start chatting →") }
-        }
-    }
-}
-
-@Composable
-private fun WelcomePanel(onPrompt: () -> Unit) {
-    Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Avatar(Speaker.NVIDIA); Avatar(Speaker.GEMINI) }
-        Spacer(Modifier.height(22.dp))
-        Text("Welcome to the room", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text("Ask one question and get two distinct perspectives that can build on, challenge, and sharpen each other.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(22.dp))
-        OutlinedButton(onClick = onPrompt) { Text("Try a technical discussion") }
-        Spacer(Modifier.height(10.dp))
-        Text("Tap a participant above to mute or unmute.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun ParticipantChip(speaker: Speaker, active: Boolean, enabled: Boolean, click: () -> Unit) {
-    FilterChip(selected = active, enabled = enabled, onClick = click, leadingIcon = { Box(Modifier.size(9.dp).background(speakerAccent(speaker), CircleShape)) }, label = { Text("${speaker.label} · ${if (active) "on" else "muted"}") })
-}
-
-@Composable
-private fun Avatar(speaker: Speaker) {
-    Box(Modifier.size(38.dp).background(speakerAccent(speaker), CircleShape), contentAlignment = Alignment.Center) {
-        Text(when (speaker) { Speaker.NVIDIA -> "N"; Speaker.CHATGPT -> "C"; Speaker.GEMINI -> "G"; Speaker.USER -> "U" }, color = Color.White, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun MessageBubble(message: Message, onSettings: () -> Unit) {
-    val user = message.speaker == Speaker.USER
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (user) Arrangement.End else Arrangement.Start) {
-        if (!user) { Avatar(message.speaker); Spacer(Modifier.width(8.dp)) }
-        Column(Modifier.widthIn(max = 520.dp).weight(1f, fill = false), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 5.dp)) {
-                Text(message.speaker.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                Text("· ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Surface(shape = if (user) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp) else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp), color = when { message.error -> MaterialTheme.colorScheme.errorContainer; user -> MaterialTheme.colorScheme.primaryContainer; else -> MaterialTheme.colorScheme.surfaceVariant }, modifier = Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
-                Column(Modifier.padding(14.dp)) {
-                    SelectionContainer { Text(message.text, style = MaterialTheme.typography.bodyLarge) }
-                    if (message.error) TextButton(onClick = onSettings) { Text("Open Settings") }
-                }
-            }
-        }
-        if (user) { Spacer(Modifier.width(8.dp)); Avatar(Speaker.USER) }
-    }
-}
-
+/** Agent selection, presets and credential editing are runtime data, including duplicate provider instances. */
 @Composable
 private fun SettingsScreen(state: ChatState, vm: ChatViewModel) {
-    var nvidiaKey by remember { mutableStateOf("") }
-    var geminiKey by remember { mutableStateOf("") }
-    var nvidiaModel by remember(state.preferences.nvidiaModel) { mutableStateOf(state.preferences.nvidiaModel) }
-    var fallbackModel by remember(state.preferences.nvidiaFallbackModel) { mutableStateOf(state.preferences.nvidiaFallbackModel) }
-    var geminiModel by remember(state.preferences.geminiModel) { mutableStateOf(state.preferences.geminiModel) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Make the room yours", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-        Text("Connect your providers, tune response style, and keep control of your conversation.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = MaterialTheme.shapes.medium) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Default.CheckCircle, null, tint = MaterialTheme.colorScheme.secondary)
-                Column(Modifier.weight(1f)) { Text("Quick replies", style = MaterialTheme.typography.titleMedium); Text("Shorter answers with less thinking time.", style = MaterialTheme.typography.bodySmall) }
-                Switch(checked = state.preferences.quickReplies, enabled = !state.busy, onCheckedChange = { vm.updatePreferences(state.preferences.copy(quickReplies = it)) })
+    var editing by remember { mutableStateOf<AgentProfile?>(null) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Conversation", style = MaterialTheme.typography.titleLarge)
+        Row { Mode.entries.forEach { mode -> FilterChip(state.preferences.mode == mode,
+            { vm.updatePreferences(state.preferences.copy(mode = mode)) }, label = { Text(mode.name.lowercase()) }, enabled = !state.busy) } }
+        Row(verticalAlignment = Alignment.CenterVertically) { Text("Quick replies", Modifier.weight(1f)); Switch(state.preferences.quickReplies,
+            { vm.updatePreferences(state.preferences.copy(quickReplies = it)) }, enabled = !state.busy) }
+        Text("Agents", style = MaterialTheme.typography.titleLarge)
+        state.agents.filter { it.id != AgentProfile.USER.id && !it.archived }.forEach { a ->
+            OutlinedCard(Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(a)
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) { Text(a.displayName); Text(a.providerConfig.modelId, style = MaterialTheme.typography.bodySmall) }
+                    Switch(a.enabled, { vm.saveAgent(a.copy(enabled = it)) }, enabled = !state.busy)
+                    TextButton(onClick = { editing = a }, enabled = !state.busy) { Text("Edit") }
+                }
             }
         }
-        KeyCard("NVIDIA", state.nvidiaKeySaved, nvidiaKey, { nvidiaKey = it }, !state.busy) { vm.removeKey(Speaker.NVIDIA) }
-        OutlinedTextField(nvidiaModel, { nvidiaModel = it }, label = { Text("NVIDIA model ID") }, enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(fallbackModel, { fallbackModel = it }, label = { Text("NVIDIA fallback model ID") }, enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Text("On NVIDIA 404/410, retry once with this fallback model. Choose an active hosted model if the default is unavailable.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        KeyCard("Gemini", state.geminiKeySaved, geminiKey, { geminiKey = it }, !state.busy) { vm.removeKey(Speaker.GEMINI) }
-        OutlinedTextField(geminiModel, { geminiModel = it }, label = { Text("Gemini model ID") }, enabled = !state.busy, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(onClick = { vm.saveKeys(nvidiaKey, geminiKey, nvidiaModel, geminiModel, fallbackModel); nvidiaKey = ""; geminiKey = "" }, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Save settings") }
-        Text("Leave a key field blank to keep its saved value. Keys are encrypted on this device. Full chat history is sent to enabled providers.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { editing = AgentProfile(UUID.randomUUID().toString(), "New agent", Color(0xFF6750A4), "A", ProviderPresets.all.first().config) }, enabled = !state.busy) { Text("Add agent") }
+        HorizontalDivider()
+        Text("GitHub", style = MaterialTheme.typography.titleLarge)
+        Text("Connect one repository using a fine-grained PAT. Repository reads may be shared with the enabled AI providers. Every proposed write requires your separate review and confirmation.")
+        var repo by remember(state.githubRepo) { mutableStateOf(state.githubRepo) }
+        // Secrets intentionally use remember, never rememberSaveable or Room.
+        var pat by remember { mutableStateOf("") }
+        OutlinedTextField(repo, { repo = it }, label = { Text("owner/repository") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(pat, { pat = it }, label = { Text("GitHub PAT (blank keeps saved token)") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        Row {
+            Button(onClick = { vm.connectGithub(repo, pat); pat = "" }, enabled = !state.busy) { Text("Verify & connect") }
+            TextButton(onClick = vm::disconnectGithub, enabled = !state.busy && state.githubRepo.isNotBlank()) { Text("Disconnect") }
+        }
+        if (state.githubRepo.isNotBlank()) Text("Connected repository: ${state.githubRepo}")
     }
+    editing?.let { agent -> AgentEditor(agent, state.busy, onDismiss = { editing = null },
+        onSave = { a, key, remove -> vm.saveAgent(a, key, remove); editing = null },
+        onRemove = { vm.removeAgent(agent); editing = null }) }
 }
 
+/** All provider fields are editable; applying a preset never copies credentials from another agent. */
 @Composable
-private fun KeyCard(name: String, saved: Boolean, value: String, change: (String) -> Unit, enabled: Boolean, remove: () -> Unit) {
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("$name API key", style = MaterialTheme.typography.titleMedium)
-            Text(if (saved) "Key saved securely" else "Not connected yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(value, change, enabled = enabled, modifier = Modifier.fillMaxWidth(), placeholder = { Text(if (saved) "Paste a replacement key" else "Paste your API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false))
-            if (saved) TextButton(onClick = remove, enabled = enabled) { Text("Remove $name key") }
+private fun AgentEditor(original: AgentProfile, busy: Boolean, onDismiss: () -> Unit,
+    onSave: (AgentProfile, String, Boolean) -> Unit, onRemove: () -> Unit) {
+    var draft by remember(original.id) { mutableStateOf(original) }
+    var key by remember { mutableStateOf("") }
+    var removeKey by remember { mutableStateOf(false) }
+    var color by remember { mutableStateOf("%06X".format(original.color.toArgb() and 0xFFFFFF)) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var terms by remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Agent & provider") }, text = {
+        Column(Modifier.heightIn(max = 530.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Provider preset")
+            ProviderPresets.all.forEach { preset -> TextButton(onClick = {
+                draft = draft.copy(providerConfig = preset.config); terms = preset.terms; key = ""
+            }) { Text(preset.name) } }
+            if (terms.isNotBlank()) Text(terms, style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(draft.displayName, { draft = draft.copy(displayName = it) }, label = { Text("Display name") })
+            OutlinedTextField(draft.avatarLetter, { draft = draft.copy(avatarLetter = it) }, label = { Text("Avatar letter / emoji") })
+            OutlinedTextField(color, { color = it.removePrefix("#") }, label = { Text("Avatar color RRGGBB") })
+            Avatar(draft.copy(color = color.toLongOrNull(16)?.let { Color((it or 0xFF000000).toInt()) } ?: draft.color))
+            OutlinedTextField(draft.providerConfig.baseUrl, { draft = draft.copy(providerConfig = draft.providerConfig.copy(baseUrl = it)) }, label = { Text("API base URL (include /v1 if needed)") })
+            OutlinedTextField(draft.providerConfig.modelId, { draft = draft.copy(providerConfig = draft.providerConfig.copy(modelId = it)) }, label = { Text("Model ID") })
+            Text("Request shape")
+            RequestShape.entries.forEach { shape -> FilterChip(draft.providerConfig.shape == shape,
+                { draft = draft.copy(providerConfig = draft.providerConfig.copy(shape = shape)) }, label = { Text(shape.name) }) }
+            Text("Authentication")
+            AuthStyle.entries.forEach { auth -> FilterChip(draft.providerConfig.authStyle == auth,
+                { draft = draft.copy(providerConfig = draft.providerConfig.copy(authStyle = auth)) }, label = { Text(auth.name) }) }
+            if (draft.providerConfig.authStyle == AuthStyle.CUSTOM) OutlinedTextField(draft.providerConfig.customHeader,
+                { draft = draft.copy(providerConfig = draft.providerConfig.copy(customHeader = it)) }, label = { Text("Custom header name") })
+            OutlinedTextField(key, { key = it }, label = { Text("API key (blank keeps saved key)") }, visualTransformation = PasswordVisualTransformation())
+            Text("Changing the base URL clears the old key. Enter a replacement for the new endpoint.", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Remove saved key", Modifier.weight(1f)); Checkbox(removeKey, { removeKey = it }) }
+            OutlinedTextField(draft.providerConfig.fallbackModel, { draft = draft.copy(providerConfig = draft.providerConfig.copy(fallbackModel = it)) }, label = { Text("Fallback model (optional, compatible APIs)") })
+            var tokens by remember { mutableStateOf(draft.providerConfig.maxTokens?.toString().orEmpty()) }
+            var context by remember { mutableStateOf(draft.providerConfig.contextTokens.toString()) }
+            LaunchedEffect(draft.providerConfig) { tokens = draft.providerConfig.maxTokens?.toString().orEmpty(); context = draft.providerConfig.contextTokens.toString() }
+            OutlinedTextField(tokens, { tokens = it; draft = draft.copy(providerConfig = draft.providerConfig.copy(maxTokens = it.toIntOrNull())) }, label = { Text("Max output tokens (blank = mode default)") })
+            OutlinedTextField(context, { context = it; it.toIntOrNull()?.let { n -> draft = draft.copy(providerConfig = draft.providerConfig.copy(contextTokens = n)) } }, label = { Text("Context token budget") })
+            Text("Compatible API thinking override")
+            listOf(null, false, true).forEach { value -> FilterChip(draft.providerConfig.thinking == value,
+                { draft = draft.copy(providerConfig = draft.providerConfig.copy(thinking = value)) }, label = { Text(value?.toString() ?: "Provider default") }) }
+            OutlinedTextField(draft.providerConfig.thinkingLevel.orEmpty(), { draft = draft.copy(providerConfig = draft.providerConfig.copy(thinkingLevel = it.ifBlank { null })) }, label = { Text("Gemini thinking level (optional)") })
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("Allow keyless local HTTP", Modifier.weight(1f)); Switch(draft.providerConfig.allowLocalHttp,
+                { draft = draft.copy(providerConfig = draft.providerConfig.copy(allowLocalHttp = it)) }) }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            TextButton(onClick = onRemove, enabled = !busy) { Text("Remove agent (keep history)") }
         }
-    }
+    }, confirmButton = { TextButton(onClick = {
+        try {
+            require(color.matches(Regex("[0-9a-fA-F]{6}"))) { "Enter a six-digit color." }
+            require(draft.displayName.isNotBlank() && draft.displayName.length <= 60) { "Name must have 1–60 characters." }
+            require(draft.avatarLetter.codePointCount(0, draft.avatarLetter.length) in 1..2) { "Use one letter or emoji." }
+            draft.providerConfig.validate()
+            onSave(draft.copy(color = Color((color.toLong(16) or 0xFF000000).toInt())), key, removeKey)
+        } catch (e: IllegalArgumentException) { error = e.message }
+    }, enabled = !busy) { Text("Save agent") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }

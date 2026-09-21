@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.aichatroom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0-Quick"
+        versionCode = 4
+        versionName = "2.0.0-Agents"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     compileOptions {
@@ -21,6 +21,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
@@ -39,7 +40,10 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }
+

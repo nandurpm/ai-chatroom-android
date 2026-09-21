@@ -2,7 +2,7 @@ name: Android debug build
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, "codex/multi-agent-profiles"]
 permissions:
   contents: write
 jobs:
@@ -30,14 +30,16 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
           python3 scripts/summarize_tests.py
-          cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom-NVIDIA.apk
-          sha256sum AI-Chatroom-NVIDIA.apk > SHA256SUMS.txt
+          cp app/build/outputs/apk/debug/app-debug.apk AI-Chatroom.apk
+          sha256sum AI-Chatroom.apk > SHA256SUMS.txt
           tar -czf test-results.tar.gz -C app/build/reports/tests testDebugUnitTest
-      - name: Attach APK to private repository release
+      - name: Attach APK to repository release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: debug-${{ github.run_number }}
         run: |
-          gh release create "$RELEASE_TAG" AI-Chatroom-NVIDIA.apk SHA256SUMS.txt test-results.tar.gz \
-            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom Quick replies v1.2 - build $GITHUB_RUN_NUMBER" \
-            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Quick replies enabled by default: reduced thinking, shorter answers, Stop button, and 90-second per-provider deadline. NVIDIA Nemotron with Qwen fallback and Gemini 3.6 Flash. OpenAI credits not required. Enter NVIDIA and Gemini API keys in Settings."
+          gh release create "$RELEASE_TAG" AI-Chatroom.apk SHA256SUMS.txt test-results.tar.gz \
+            --target "$GITHUB_SHA" --prerelease --title "AI Chatroom Multi-agent v2.0 - build $GITHUB_RUN_NUMBER" \
+            --notes "Debug APK built from $GITHUB_SHA. Unit tests and APK signature verification passed. Runtime agent profiles, configurable providers, Markdown, bounded context, and confirmed GitHub write proposals. Enter provider keys in Settings."
+

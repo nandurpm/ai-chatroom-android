@@ -14,15 +14,15 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 class ProviderTest {
-    private fun retrofit(server: MockWebServer) = Retrofit.Builder().baseUrl(server.url("/"))
+    private fun retrofit(server: MockWebServer) = Retrofit.Builder().baseUrl(server.url("/v1/"))
         .addConverterFactory(GsonConverterFactory.create()).build()
-    private val history = listOf(Message(speaker = Speaker.USER, text = "Hi"),
-        Message(speaker = Speaker.NVIDIA, text = "First response"))
+    private val history = listOf(Message(speaker = AgentProfile.USER, text = "Hi"),
+        Message(speaker = AgentProfile.NVIDIA, text = "First response"))
     @Test fun geminiReceivesNamedPeerAndSystemPrompt() = runTest {
         val server = MockWebServer()
         try {
             server.enqueue(MockResponse().setBody("""{"candidates":[{"content":{"parts":[{"text":"private thought","thought":true},{"text":"Hello"}]}}]}"""))
-            val ai = GeminiParticipant(retrofit(server).create(GeminiApi::class.java), { "fake-test-key" }, "gemini-3.6-flash")
+            val ai = GeminiParticipant(Retrofit.Builder().baseUrl(server.url("/")).addConverterFactory(GsonConverterFactory.create()).build().create(GeminiApi::class.java), { "fake-test-key" }, "gemini-3.6-flash")
             assertEquals("Hello", ai.getResponse(history, "Expert prompt"))
             val request = server.takeRequest()
             assertEquals("/v1beta/models/gemini-3.6-flash:generateContent", request.path)
@@ -38,8 +38,8 @@ class ProviderTest {
         val server = MockWebServer()
         try {
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Hello"}}]}"""))
-            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake-test-key" }, "nvidia/nemotron-3-super-120b-a12b")
-            val peer = listOf(Message(speaker = Speaker.USER, text = "Hi"), Message(speaker = Speaker.GEMINI, text = "Peer answer"))
+            val ai = NvidiaParticipant(retrofit(server).create(OpenAiApi::class.java), { "fake-test-key" }, "nvidia/nemotron-3-super-120b-a12b")
+            val peer = listOf(Message(speaker = AgentProfile.USER, text = "Hi"), Message(speaker = AgentProfile.GEMINI, text = "Peer answer"))
             assertEquals("Hello", ai.getResponse(peer, "System prompt"))
             val request = server.takeRequest()
             assertEquals("/v1/chat/completions", request.path)
@@ -57,7 +57,7 @@ class ProviderTest {
     @Test fun missingKeyNeverCallsNetwork() = runTest {
         val server = MockWebServer()
         try {
-            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "" }, "nvidia/nemotron-3-super-120b-a12b")
+            val ai = NvidiaParticipant(retrofit(server).create(OpenAiApi::class.java), { "" }, "nvidia/nemotron-3-super-120b-a12b")
             try { ai.getResponse(history, "prompt"); fail("Expected missing key") }
             catch (e: UserFacingException) { assertTrue(e.message!!.contains("Settings")) }
             assertEquals(0, server.requestCount)
@@ -68,7 +68,7 @@ class ProviderTest {
         try {
             server.enqueue(MockResponse().setResponseCode(429).addHeader("Retry-After", "1"))
             server.enqueue(MockResponse().setBody("""{"choices":[{"message":{"content":"Recovered"}}]}"""))
-            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake" }, "nvidia/nemotron-3-super-120b-a12b")
+            val ai = NvidiaParticipant(retrofit(server).create(OpenAiApi::class.java), { "fake" }, "nvidia/nemotron-3-super-120b-a12b")
             assertEquals("Recovered", ai.getResponse(history, "prompt"))
             assertEquals(2, server.requestCount)
         } finally { server.shutdown() }
@@ -77,7 +77,7 @@ class ProviderTest {
         val server = MockWebServer()
         try {
             server.enqueue(MockResponse().setResponseCode(401))
-            val ai = NvidiaParticipant(retrofit(server).create(NvidiaApi::class.java), { "fake" }, "nvidia/nemotron-3-super-120b-a12b")
+            val ai = NvidiaParticipant(retrofit(server).create(OpenAiApi::class.java), { "fake" }, "nvidia/nemotron-3-super-120b-a12b")
             try { ai.getResponse(history, "prompt"); fail("Expected HTTP error") }
             catch (e: HttpException) { assertEquals(401, e.code()) }
             assertEquals(1, server.requestCount)
@@ -92,3 +92,4 @@ class ProviderTest {
         catch (_: CancellationException) { assertEquals(1, calls) }
     }
 }
+

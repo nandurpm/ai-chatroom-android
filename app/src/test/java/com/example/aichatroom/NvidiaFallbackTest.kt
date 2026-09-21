@@ -15,10 +15,10 @@ import retrofit2.converter.gson.GsonConverterFactory
 class NvidiaFallbackTest {
     private val primary = "nvidia/nemotron-3-super-120b-a12b"
     private val fallback = "qwen/qwen3.5-397b-a17b"
-    private val history = listOf(Message(speaker = Speaker.USER, text = "Hello"))
+    private val history = listOf(Message(speaker = AgentProfile.USER, text = "Hello"))
     private fun ai(server: MockWebServer, backup: String = fallback) = NvidiaParticipant(
-        Retrofit.Builder().baseUrl(server.url("/")).addConverterFactory(GsonConverterFactory.create())
-            .build().create(NvidiaApi::class.java), { "fake-nvidia-key" }, primary, backup)
+        Retrofit.Builder().baseUrl(server.url("/v1/")).addConverterFactory(GsonConverterFactory.create())
+            .build().create(OpenAiApi::class.java), { "fake-nvidia-key" }, primary, backup)
     private suspend fun verifyFallback(status: Int) {
         val server = MockWebServer()
         try {
@@ -72,11 +72,12 @@ class NvidiaFallbackTest {
         } finally { server.shutdown() }
     }
     @Test fun legacyChatGptMessagesKeepTheirIdentity() {
-        val old = Message(speaker = Speaker.CHATGPT, text = "Historical OpenAI answer")
+        val old = Message(speaker = AgentProfile.CHATGPT, text = "Historical OpenAI answer")
         val request = Transcript.nvidia(listOf(old)).single()
-        assertEquals("ChatGPT", Speaker.valueOf("CHATGPT").label)
+        assertEquals("ChatGPT", AgentProfile.valueOf("CHATGPT").label)
         assertEquals("user", request.role)
         assertEquals("ChatGPT", JsonParser.parseString(request.content).asJsonObject["speaker"].asString)
         assertEquals("gemini-3.6-flash", Preferences().geminiModel)
     }
 }
+
