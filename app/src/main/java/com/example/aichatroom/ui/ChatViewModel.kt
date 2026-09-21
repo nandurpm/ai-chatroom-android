@@ -53,12 +53,18 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
                     try { settings.readKey(a) } catch (_: Exception) { throw UserFacingException("Could not unlock the key. Replace it in Settings.") }
                 }.map { if (connectedRepo.isBlank()) it else GithubParticipant(it, github, connectedRepo) }
                 engine.run(participants, preferences.mode, { active ->
+                    // Discussion mode has one active participant at a time.
                     state.update { current -> current.copy(statuses = current.statuses.mapValues { (id, status) ->
                         when { id == active?.id -> AgentStatus.RESPONDING
                             status == AgentStatus.RESPONDING -> AgentStatus.DONE
                             else -> status }
                     }) }
-                }, ApiErrors::describe)
+                }, ApiErrors::describe, parallel = preferences.parallelReplies, status = { agent, responding ->
+                    // Fast mode can have several providers responding at the same time.
+                    state.update { current -> current.copy(statuses = current.statuses.toMutableMap().apply {
+                        this[agent.id] = if (responding) AgentStatus.RESPONDING else AgentStatus.DONE
+                    }) }
+                })
                 // Only fresh AI messages from this turn can propose writes. History cannot replay approvals.
                 val proposals = repository.history().filter { it.id > startId && it.speaker.id != AgentProfile.USER.id && !it.error }
                     .mapNotNull { m -> GithubProtocol.parse(m.text)?.takeIf { it.writes && connectedRepo.isNotBlank() }
