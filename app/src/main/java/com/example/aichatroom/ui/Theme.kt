@@ -57,6 +57,9 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
         onBackground = Color(0xFFE5E8F0),
         surface = Night,
         onSurface = Color(0xFFE5E8F0),
+        surfaceContainer = NightSurface,
+        surfaceContainerHighest = NightElevated,
+        tertiary = Color(0xFF98D8A0),
         surfaceVariant = NightElevated,
         onSurfaceVariant = Color(0xFFC2C8D4),
         outline = Color(0xFF4D586A),
@@ -74,6 +77,9 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
         onBackground = Ink,
         surface = Canvas,
         onSurface = Ink,
+        surfaceContainer = Color.White,
+        surfaceContainerHighest = Color(0xFFEEF0F6),
+        tertiary = Color(0xFF226A38),
         surfaceVariant = Color(0xFFEEF0F6),
         onSurfaceVariant = MutedInk,
         outline = Color(0xFFD0D5E0),
@@ -87,14 +93,6 @@ fun ChatroomTheme(content: @Composable () -> Unit) {
         content = content
     )
 }
-
-fun speakerAccent(speaker: com.example.aichatroom.domain.AgentProfile): Color = when (speaker) {
-    com.example.aichatroom.domain.AgentProfile.NVIDIA -> Color(0xFF0A8F78)
-    com.example.aichatroom.domain.AgentProfile.CHATGPT -> Color(0xFF0A8F78)
-    com.example.aichatroom.domain.AgentProfile.GEMINI -> Color(0xFF5577E8)
-    com.example.aichatroom.domain.AgentProfile.USER -> Color(0xFF7568DE)
-}
-
 
 /** Choose readable avatar text independently from system theme and user-selected background. */
 fun avatarTextColor(background: Color): Color {

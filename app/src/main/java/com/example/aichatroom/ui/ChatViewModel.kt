@@ -74,7 +74,7 @@ class ChatViewModel(private val repository: ChatRepository, private val settings
     fun stop() { if (!clearing) turn?.cancel() }
     /** Join cancellation before clearing; a late HTTP reply must not repopulate deleted history. */
     fun clear() {
-        if (clearing) return
+        if (clearing || (state.value.busy && state.value.statuses.isEmpty())) return
         clearing = true
         viewModelScope.launch {
             try { turn?.cancelAndJoin(); repository.clear(); confirmations.clear(); state.update { it.copy(proposals = emptyList()) }

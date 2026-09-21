@@ -164,11 +164,14 @@ private fun AgentEditor(original: AgentProfile, busy: Boolean, onDismiss: () -> 
     var color by remember { mutableStateOf("%06X".format(original.color.toArgb() and 0xFFFFFF)) }
     var error by remember { mutableStateOf<String?>(null) }
     var terms by remember { mutableStateOf("") }
+    var tokens by remember { mutableStateOf(original.providerConfig.maxTokens?.toString().orEmpty()) }
+    var context by remember { mutableStateOf(original.providerConfig.contextTokens.toString()) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Agent & provider") }, text = {
         Column(Modifier.heightIn(max = 530.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Provider preset")
             ProviderPresets.all.forEach { preset -> TextButton(onClick = {
                 draft = draft.copy(providerConfig = preset.config); terms = preset.terms; key = ""
+                tokens = preset.config.maxTokens?.toString().orEmpty(); context = preset.config.contextTokens.toString()
             }) { Text(preset.name) } }
             if (terms.isNotBlank()) Text(terms, style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(draft.displayName, { draft = draft.copy(displayName = it) }, label = { Text("Display name") })
@@ -189,11 +192,8 @@ private fun AgentEditor(original: AgentProfile, busy: Boolean, onDismiss: () -> 
             Text("Changing the base URL clears the old key. Enter a replacement for the new endpoint.", style = MaterialTheme.typography.bodySmall)
             Row(verticalAlignment = Alignment.CenterVertically) { Text("Remove saved key", Modifier.weight(1f)); Checkbox(removeKey, { removeKey = it }) }
             OutlinedTextField(draft.providerConfig.fallbackModel, { draft = draft.copy(providerConfig = draft.providerConfig.copy(fallbackModel = it)) }, label = { Text("Fallback model (optional, compatible APIs)") })
-            var tokens by remember { mutableStateOf(draft.providerConfig.maxTokens?.toString().orEmpty()) }
-            var context by remember { mutableStateOf(draft.providerConfig.contextTokens.toString()) }
-            LaunchedEffect(draft.providerConfig) { tokens = draft.providerConfig.maxTokens?.toString().orEmpty(); context = draft.providerConfig.contextTokens.toString() }
-            OutlinedTextField(tokens, { tokens = it; draft = draft.copy(providerConfig = draft.providerConfig.copy(maxTokens = it.toIntOrNull())) }, label = { Text("Max output tokens (blank = mode default)") })
-            OutlinedTextField(context, { context = it; it.toIntOrNull()?.let { n -> draft = draft.copy(providerConfig = draft.providerConfig.copy(contextTokens = n)) } }, label = { Text("Context token budget") })
+            OutlinedTextField(tokens, { tokens = it }, label = { Text("Max output tokens (blank = mode default)") })
+            OutlinedTextField(context, { context = it }, label = { Text("Context token budget") })
             Text("Compatible API thinking override")
             listOf(null, false, true).forEach { value -> FilterChip(draft.providerConfig.thinking == value,
                 { draft = draft.copy(providerConfig = draft.providerConfig.copy(thinking = value)) }, label = { Text(value?.toString() ?: "Provider default") }) }
@@ -208,8 +208,11 @@ private fun AgentEditor(original: AgentProfile, busy: Boolean, onDismiss: () -> 
             require(color.matches(Regex("[0-9a-fA-F]{6}"))) { "Enter a six-digit color." }
             require(draft.displayName.isNotBlank() && draft.displayName.length <= 60) { "Name must have 1–60 characters." }
             require(draft.avatarLetter.codePointCount(0, draft.avatarLetter.length) in 1..2) { "Use one letter or emoji." }
-            draft.providerConfig.validate()
-            onSave(draft.copy(color = Color((color.toLong(16) or 0xFF000000).toInt())), key, removeKey)
+            require(tokens.isBlank() || tokens.toIntOrNull() != null) { "Output tokens must be a number." }
+            val config = draft.providerConfig.copy(maxTokens = tokens.toIntOrNull(),
+                contextTokens = context.toIntOrNull() ?: throw IllegalArgumentException("Context tokens must be a number."))
+            config.validate()
+            onSave(draft.copy(providerConfig = config, color = Color((color.toLong(16) or 0xFF000000).toInt())), key, removeKey)
         } catch (e: IllegalArgumentException) { error = e.message }
     }, enabled = !busy) { Text("Save agent") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
