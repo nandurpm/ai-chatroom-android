@@ -159,8 +159,9 @@ export async function POST(request) {
       return NextResponse.json({ error: "Participant configuration is incomplete." }, { status: 400 });
     }
 
-    // A browser-entered key takes precedence; Vercel server keys never reach the client.
-    const apiKey = cleanText(body?.apiKey, 10_000) || serverApiKey(provider.id);
+    // Prefer the Vercel environment key when configured. Browser-entered keys are only a fallback.
+    // This prevents stale or invalid sessionStorage keys from overriding a valid production secret.
+    const apiKey = serverApiKey(provider.id) || cleanText(body?.apiKey, 10_000);
     if (!apiKey) return NextResponse.json({ error: "Add an API key for this participant." }, { status: 400 });
 
     const maxTokens = Math.min(Math.max(Number(body?.maxTokens) || 2048, 128), 8192);
