@@ -10,7 +10,8 @@ The web client is isolated under `web/` so it does not conflict with the Android
 - Friendly and Expert reply modes.
 - Sequential turns so later AIs can see earlier AI replies.
 - Stop a running turn, clear the room, copy replies, and keep chat/settings locally in the browser.
-- API keys are stored in `sessionStorage` for the current browser tab/session and sent only to `/api/chat` for the selected provider request.
+- Hosted Vercel environment variables (`GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `CEREBRAS_API_KEY`, `HF_TOKEN`, and `NVIDIA_API_KEY`) are used by `/api/chat` by default; an API key entered in the UI is only an optional per-session override.
+- Optional browser overrides are stored in `sessionStorage` for the current browser tab/session and sent only to `/api/chat` for the selected provider request.
 
 ## Run locally
 
