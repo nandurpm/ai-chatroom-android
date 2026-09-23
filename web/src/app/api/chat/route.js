@@ -14,7 +14,7 @@ const SERVER_KEY_ENV = {
   openrouter: ["OPENROUTER_API_KEY"],
   google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
   cerebras: ["CEREBRAS_API_KEY"],
-  huggingface: ["HUGGINGFACE_API_KEY", "HF_API_KEY"],
+  huggingface: ["HUGGINGFACE_API_KEY", "HF_API_KEY", "HF_TOKEN"],
   nvidia: ["NVIDIA_API_KEY"],
 };
 
