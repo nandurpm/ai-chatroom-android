@@ -6,6 +6,7 @@ export const maxDuration = 90;
 
 const MAX_HISTORY = 80;
 const MAX_TEXT = 40_000;
+const OPENROUTER_FALLBACK_MODEL = process.env.OPENROUTER_FALLBACK_MODEL?.trim() || "openrouter/free";
 const DEFAULT_SYSTEM_PROMPT =
   "You are one participant in a group AI chatroom. Reply to the user's latest request while considering useful points from other participants. Do not pretend to be the other agents. Be concise unless detail is useful.";
 
@@ -17,6 +18,16 @@ const SERVER_KEY_ENV = {
   huggingface: ["HUGGINGFACE_API_KEY", "HF_API_KEY", "HF_TOKEN"],
   nvidia: ["NVIDIA_API_KEY"],
 };
+
+class ProviderHttpError extends Error {
+  constructor(status, providerId, detail = "") {
+    super(`PROVIDER_HTTP_${status}`);
+    this.name = "ProviderHttpError";
+    this.status = status;
+    this.providerId = providerId;
+    this.detail = detail;
+  }
+}
 
 function serverApiKey(providerId) {
   return (SERVER_KEY_ENV[providerId] || [])
@@ -30,6 +41,19 @@ function configuredServerProviders() {
 
 function cleanText(value, max = MAX_TEXT) {
   return typeof value === "string" ? value.slice(0, max) : "";
+}
+
+function normalizeAnswerText(value) {
+  const text = cleanText(value).trim();
+  if (!text) return "";
+  if (text.startsWith("{") && text.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed?.text === "string" && parsed.text.trim()) return cleanText(parsed.text).trim();
+      if (typeof parsed?.message === "string" && parsed.message.trim()) return cleanText(parsed.message).trim();
+    } catch {}
+  }
+  return text;
 }
 
 function authHeaders(provider, apiKey) {
@@ -48,13 +72,17 @@ function sanitizeHistory(history) {
   }));
 }
 
+function transcriptText(message) {
+  return `${message.speakerName}: ${message.text}`;
+}
+
 function openAiMessages(history, agent, systemPrompt) {
   const messages = [{ role: "system", content: systemPrompt }];
   for (const message of history) {
     if (message.error || !message.text) continue;
     messages.push({
       role: message.speakerId === agent.id ? "assistant" : "user",
-      content: JSON.stringify({ speaker: message.speakerName, text: message.text }),
+      content: message.speakerId === agent.id ? message.text : transcriptText(message),
     });
   }
   return messages;
@@ -65,7 +93,7 @@ function geminiContents(history, agent) {
   for (const message of history) {
     if (message.error || !message.text) continue;
     const role = message.speakerId === agent.id ? "model" : "user";
-    const text = JSON.stringify({ speaker: message.speakerName, text: message.text });
+    const text = message.speakerId === agent.id ? message.text : transcriptText(message);
     const previous = contents.at(-1);
     if (previous?.role === role) previous.parts.push({ text });
     else contents.push({ role, parts: [{ text }] });
@@ -74,16 +102,56 @@ function geminiContents(history, agent) {
 }
 
 function friendlyError(status) {
-  if (status === 401 || status === 403) return "API key rejected or this model is not available to the account.";
-  if (status === 429) return "Provider rate limit or quota reached. Try again after checking the account limits.";
-  if (status === 400 || status === 413) return "The provider rejected the request. Check the model name or start a shorter chat.";
-  if (status === 404 || status === 410) return "Model not found. Update the model ID for this participant.";
+  if (status === 401) return "API key rejected by the provider.";
+  if (status === 402) return "Provider credits or billing are required for this request.";
+  if (status === 403) return "API key lacks permission for this provider or model.";
+  if (status === 429) return "Provider rate limit or quota reached.";
+  if (status === 400 || status === 413) return "The provider rejected the request or model configuration.";
+  if (status === 404 || status === 410) return "Model not found or no longer available.";
   if (status >= 500) return "The AI provider is temporarily unavailable.";
   return `Provider request failed with HTTP ${status}.`;
 }
 
+async function providerFailure(response, provider) {
+  let detail = "";
+  try {
+    const raw = await response.text();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        detail = cleanText(
+          parsed?.error?.message || parsed?.error?.detail || parsed?.message || parsed?.detail || "",
+          300,
+        ).trim();
+      } catch {
+        detail = cleanText(raw, 300).trim();
+      }
+    }
+  } catch {}
+  throw new ProviderHttpError(response.status, provider.id, detail);
+}
+
+function providerErrorMessage(error, provider) {
+  if (error instanceof ProviderHttpError) {
+    const base = `${provider?.label || "Provider"}: ${friendlyError(error.status)}`;
+    return error.detail ? `${base} ${error.detail}` : base;
+  }
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return "The provider timed out before replying.";
+  if (error instanceof Error && error.message === "EMPTY_RESPONSE") return "The provider returned no answer text.";
+  return "Unable to complete this AI reply.";
+}
+
+function canFallback(error, providerId) {
+  if (providerId === "openrouter" || !serverApiKey("openrouter")) return false;
+  if (error?.name === "AbortError" || error?.name === "TimeoutError") return false;
+  return true;
+}
+
 export async function GET() {
-  return NextResponse.json({ providers: configuredServerProviders() }, {
+  return NextResponse.json({
+    providers: configuredServerProviders(),
+    fallback: Boolean(serverApiKey("openrouter")),
+  }, {
     headers: { "Cache-Control": "no-store" },
   });
 }
@@ -106,10 +174,15 @@ async function callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTok
     signal,
   });
 
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) await providerFailure(response, provider);
   const payload = await response.json();
   const answer = payload?.choices?.[0]?.message;
-  const text = cleanText(answer?.content || answer?.refusal);
+  const content = typeof answer?.content === "string"
+    ? answer.content
+    : Array.isArray(answer?.content)
+      ? answer.content.map((part) => part?.text || "").join("\n")
+      : answer?.refusal;
+  const text = normalizeAnswerText(content);
   if (!text) throw new Error("EMPTY_RESPONSE");
   return text;
 }
@@ -132,9 +205,9 @@ async function callGemini(provider, agent, history, systemPrompt, apiKey, maxTok
     signal,
   });
 
-  if (!response.ok) throw new Error(`HTTP_${response.status}`);
+  if (!response.ok) await providerFailure(response, provider);
   const payload = await response.json();
-  const text = cleanText(
+  const text = normalizeAnswerText(
     payload?.candidates?.[0]?.content?.parts
       ?.filter((part) => part?.thought !== true)
       .map((part) => part?.text || "")
@@ -142,6 +215,20 @@ async function callGemini(provider, agent, history, systemPrompt, apiKey, maxTok
   );
   if (!text) throw new Error("EMPTY_RESPONSE");
   return text;
+}
+
+async function callProvider(provider, agent, history, systemPrompt, apiKey, maxTokens, signal) {
+  return provider.shape === "gemini"
+    ? callGemini(provider, agent, history, systemPrompt, apiKey, maxTokens, signal)
+    : callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
+}
+
+async function callOpenRouterFallback(agent, history, roomPrompt, maxTokens, signal, failedProvider) {
+  const provider = PROVIDER_MAP.openrouter;
+  const apiKey = serverApiKey("openrouter");
+  const fallbackAgent = { ...agent, model: OPENROUTER_FALLBACK_MODEL };
+  const systemPrompt = `${roomPrompt}\n\nYou are ${agent.name || "an AI participant"}. The configured ${failedProvider.label} request is unavailable, so you are temporarily replying through OpenRouter. Answer the user's request normally. Do not claim that this response came from ${failedProvider.label}. Reply in plain text only; do not wrap the answer in JSON and do not repeat your speaker name.`;
+  return callOpenAi(provider, fallbackAgent, history, systemPrompt, apiKey, maxTokens, signal);
 }
 
 export async function POST(request) {
@@ -159,30 +246,46 @@ export async function POST(request) {
       return NextResponse.json({ error: "Participant configuration is incomplete." }, { status: 400 });
     }
 
-    // Prefer the Vercel environment key when configured. Browser-entered keys are only a fallback.
-    // This prevents stale or invalid sessionStorage keys from overriding a valid production secret.
+    // Prefer Vercel environment keys. Browser-entered keys are only used when no server key exists.
     const apiKey = serverApiKey(provider.id) || cleanText(body?.apiKey, 10_000);
     if (!apiKey) return NextResponse.json({ error: "Add an API key for this participant." }, { status: 400 });
 
     const maxTokens = Math.min(Math.max(Number(body?.maxTokens) || 2048, 128), 8192);
     const history = sanitizeHistory(body?.history);
     const roomPrompt = cleanText(body?.systemPrompt, 8_000) || DEFAULT_SYSTEM_PROMPT;
-    const systemPrompt = `${roomPrompt}\n\nYou are ${agent.name || "an AI participant"}. The transcript encodes each message as JSON with speaker and text fields.`;
+    const systemPrompt = `${roomPrompt}\n\nYou are ${agent.name || "an AI participant"}. Messages from other room participants are prefixed with their speaker name. Reply in plain text only; do not wrap the answer in JSON and do not repeat your speaker name.`;
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(84_000)]);
 
-    const text = provider.shape === "gemini"
-      ? await callGemini(provider, agent, history, systemPrompt, apiKey, maxTokens, signal)
-      : await callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
-
-    return NextResponse.json({ text });
+    try {
+      const text = await callProvider(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
+      return NextResponse.json({ text });
+    } catch (error) {
+      if (canFallback(error, provider.id)) {
+        try {
+          const text = await callOpenRouterFallback(agent, history, roomPrompt, maxTokens, signal, provider);
+          const reason = error instanceof ProviderHttpError ? friendlyError(error.status) : "Native provider request failed.";
+          return NextResponse.json({
+            text,
+            fallback: {
+              from: provider.id,
+              via: "openrouter",
+              reason,
+            },
+          });
+        } catch {
+          // Preserve the native provider error if the fallback also fails.
+        }
+      }
+      throw error;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message === "API_KEY_REQUIRED") {
       return NextResponse.json({ error: "Add an API key for this participant." }, { status: 400 });
     }
-    if (message.startsWith("HTTP_")) {
-      const status = Number(message.slice(5));
-      return NextResponse.json({ error: friendlyError(status) }, { status: 502 });
+    if (error instanceof ProviderHttpError) {
+      const provider = PROVIDER_MAP[error.providerId];
+      return NextResponse.json({ error: providerErrorMessage(error, provider) }, { status: 502 });
     }
     if (message === "EMPTY_RESPONSE") {
       return NextResponse.json({ error: "The provider returned no answer text." }, { status: 502 });
