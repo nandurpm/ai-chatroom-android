@@ -8,7 +8,8 @@ android {
     namespace = "com.example.aichatroom"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.example.aichatroom"
+        // Separate-install package: preserves the existing app and avoids its old signing key conflict.
+        applicationId = "com.example.aichatroom.v2"
         minSdk = 26
         targetSdk = 35
         versionCode = 4
