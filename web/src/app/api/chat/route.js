@@ -9,6 +9,25 @@ const MAX_TEXT = 40_000;
 const DEFAULT_SYSTEM_PROMPT =
   "You are one participant in a group AI chatroom. Reply to the user's latest request while considering useful points from other participants. Do not pretend to be the other agents. Be concise unless detail is useful.";
 
+const SERVER_KEY_ENV = {
+  groq: ["GROQ_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
+  google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+  cerebras: ["CEREBRAS_API_KEY"],
+  huggingface: ["HUGGINGFACE_API_KEY", "HF_API_KEY"],
+  nvidia: ["NVIDIA_API_KEY"],
+};
+
+function serverApiKey(providerId) {
+  return (SERVER_KEY_ENV[providerId] || [])
+    .map((name) => process.env[name]?.trim())
+    .find(Boolean) || "";
+}
+
+function configuredServerProviders() {
+  return Object.fromEntries(Object.keys(SERVER_KEY_ENV).map((providerId) => [providerId, Boolean(serverApiKey(providerId))]));
+}
+
 function cleanText(value, max = MAX_TEXT) {
   return typeof value === "string" ? value.slice(0, max) : "";
 }
@@ -61,6 +80,12 @@ function friendlyError(status) {
   if (status === 404 || status === 410) return "Model not found. Update the model ID for this participant.";
   if (status >= 500) return "The AI provider is temporarily unavailable.";
   return `Provider request failed with HTTP ${status}.`;
+}
+
+export async function GET() {
+  return NextResponse.json({ providers: configuredServerProviders() }, {
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 async function callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTokens, signal) {
@@ -134,7 +159,8 @@ export async function POST(request) {
       return NextResponse.json({ error: "Participant configuration is incomplete." }, { status: 400 });
     }
 
-    const apiKey = cleanText(body?.apiKey, 10_000);
+    // A browser-entered key takes precedence; Vercel server keys never reach the client.
+    const apiKey = cleanText(body?.apiKey, 10_000) || serverApiKey(provider.id);
     if (!apiKey) return NextResponse.json({ error: "Add an API key for this participant." }, { status: 400 });
 
     const maxTokens = Math.min(Math.max(Number(body?.maxTokens) || 2048, 128), 8192);

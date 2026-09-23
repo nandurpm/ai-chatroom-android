@@ -28,6 +28,7 @@ export default function Home() {
   const [mode, setMode] = useState("friendly");
   const [draft, setDraft] = useState("");
   const [runningAgentId, setRunningAgentId] = useState("");
+  const [serverProviders, setServerProviders] = useState({});
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(true);
   const abortRef = useRef(null);
@@ -35,6 +36,13 @@ export default function Home() {
 
   const activeAgents = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
   const running = Boolean(runningAgentId);
+
+  useEffect(() => {
+    fetch("/api/chat", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => setServerProviders(payload?.providers || {}))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -118,7 +126,7 @@ export default function Home() {
     for (const agent of activeAgents) {
       if (controller.signal.aborted) break;
       setRunningAgentId(agent.id);
-      if (!agent.apiKey.trim()) {
+      if (!agent.apiKey.trim() && !serverProviders[agent.providerId]) {
         history = [...history, newMessage({ speakerId: agent.id, speakerName: agent.name, text: "API key missing. Open this participant's settings and add a key.", error: true })];
         setMessages(history);
         continue;
@@ -177,7 +185,7 @@ export default function Home() {
                   <div className="agentFields">
                     <label>Provider<select value={agent.providerId} onChange={(event) => changeProvider(agent.id, event.target.value)}>{PROVIDERS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
                     <label>Model<input value={agent.model} onChange={(event) => updateAgent(agent.id, { model: event.target.value })}/></label>
-                    <label>API key<input type="password" autoComplete="off" placeholder="Stored only for this tab" value={agent.apiKey} onChange={(event) => updateAgent(agent.id, { apiKey: event.target.value })}/></label>
+                    <label>API key<input type="password" autoComplete="off" placeholder={serverProviders[agent.providerId] ? "Using Vercel environment key" : "Optional: enter a key for this tab"} value={agent.apiKey} onChange={(event) => updateAgent(agent.id, { apiKey: event.target.value })}/></label>
                   </div>
                   <div className="agentFooter"><small>{provider?.note}</small><button className="textButton danger" onClick={() => removeAgent(agent.id)} disabled={agents.length <= 1}>Remove</button></div>
                 </article>

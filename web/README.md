@@ -12,6 +12,8 @@ The web client is isolated under `web/` so it does not conflict with the Android
 - Stop a running turn, clear the room, copy replies, and keep chat/settings locally in the browser.
 - API keys are stored in `sessionStorage` for the current browser tab/session and sent only to `/api/chat` for the selected provider request.
 
+For a shared deployment, provider keys can instead be configured as Vercel **Production** environment variables. The API route reads `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY` (or `GEMINI_API_KEY`), `CEREBRAS_API_KEY`, `HUGGINGFACE_API_KEY` (or `HF_API_KEY`), and `NVIDIA_API_KEY`. These keys stay on the server; the browser only receives a yes/no configured status. A key typed into the room setup still takes precedence for that participant.
+
 ## Run locally
 
 ```bash
