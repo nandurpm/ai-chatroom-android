@@ -43,6 +43,8 @@ Import this GitHub repository into Vercel and set:
 
 Then redeploy the latest commit.
 
+The live Vercel project uses these settings; this note also serves as a harmless deployment trigger after changing the project root.
+
 The `web/` root is important because the Android project already has a root-level `app/` directory. Next.js treats `app/` as a special routing directory, so deploying the repository root can cause Next.js to resolve the Android module instead of the real web routes.
 
 Local Ollama remains Android-only because a Vercel server function cannot reach a user's LAN/localhost.
