@@ -264,8 +264,9 @@ export async function POST(request) {
         try {
           const text = await callOpenRouterFallback(agent, history, roomPrompt, maxTokens, signal, provider);
           const reason = error instanceof ProviderHttpError ? friendlyError(error.status) : "Native provider request failed.";
+          const fallbackText = `Fallback via OpenRouter (${reason})\n\n${text}`;
           return NextResponse.json({
-            text,
+            text: fallbackText,
             fallback: {
               from: provider.id,
               via: "openrouter",
