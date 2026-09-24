@@ -6,16 +6,14 @@ export const maxDuration = 90;
 
 const MAX_HISTORY = 80;
 const MAX_TEXT = 40_000;
-const OPENROUTER_FALLBACK_MODEL = process.env.OPENROUTER_FALLBACK_MODEL?.trim() || "openrouter/free";
 const DEFAULT_SYSTEM_PROMPT =
   "You are one participant in a group AI chatroom. Reply to the user's latest request while considering useful points from other participants. Do not pretend to be the other agents. Be concise unless detail is useful.";
 
 const SERVER_KEY_ENV = {
   groq: ["GROQ_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
-  google: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
-  cerebras: ["CEREBRAS_API_KEY"],
-  huggingface: ["HUGGINGFACE_API_KEY", "HF_API_KEY", "HF_TOKEN"],
+  google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  huggingface: ["HF_TOKEN", "HUGGINGFACE_API_KEY", "HF_API_KEY"],
   nvidia: ["NVIDIA_API_KEY"],
 };
 
@@ -29,18 +27,43 @@ class ProviderHttpError extends Error {
   }
 }
 
+function cleanText(value, max = MAX_TEXT) {
+  return typeof value === "string" ? value.slice(0, max) : "";
+}
+
+function normalizeSecret(value, envName = "") {
+  let secret = typeof value === "string" ? value.trim() : "";
+  if (!secret) return "";
+
+  if ((secret.startsWith('"') && secret.endsWith('"')) || (secret.startsWith("'") && secret.endsWith("'"))) {
+    secret = secret.slice(1, -1).trim();
+  }
+
+  const assignmentPrefixes = [`${envName}=`, `export ${envName}=`];
+  for (const prefix of assignmentPrefixes) {
+    if (envName && secret.startsWith(prefix)) {
+      secret = secret.slice(prefix.length).trim();
+      break;
+    }
+  }
+
+  if ((secret.startsWith('"') && secret.endsWith('"')) || (secret.startsWith("'") && secret.endsWith("'"))) {
+    secret = secret.slice(1, -1).trim();
+  }
+
+  return secret.replace(/^Bearer\s+/i, "").trim();
+}
+
 function serverApiKey(providerId) {
-  return (SERVER_KEY_ENV[providerId] || [])
-    .map((name) => process.env[name]?.trim())
-    .find(Boolean) || "";
+  for (const name of SERVER_KEY_ENV[providerId] || []) {
+    const secret = normalizeSecret(process.env[name], name);
+    if (secret) return secret;
+  }
+  return "";
 }
 
 function configuredServerProviders() {
   return Object.fromEntries(Object.keys(SERVER_KEY_ENV).map((providerId) => [providerId, Boolean(serverApiKey(providerId))]));
-}
-
-function cleanText(value, max = MAX_TEXT) {
-  return typeof value === "string" ? value.slice(0, max) : "";
 }
 
 function normalizeAnswerText(value) {
@@ -121,10 +144,10 @@ async function providerFailure(response, provider) {
         const parsed = JSON.parse(raw);
         detail = cleanText(
           parsed?.error?.message || parsed?.error?.detail || parsed?.message || parsed?.detail || "",
-          300,
+          500,
         ).trim();
       } catch {
-        detail = cleanText(raw, 300).trim();
+        detail = cleanText(raw, 500).trim();
       }
     }
   } catch {}
@@ -141,34 +164,33 @@ function providerErrorMessage(error, provider) {
   return "Unable to complete this AI reply.";
 }
 
-function canFallback(error, providerId) {
-  if (providerId === "openrouter" || !serverApiKey("openrouter")) return false;
-  if (error?.name === "AbortError" || error?.name === "TimeoutError") return false;
-  return true;
-}
-
 export async function GET() {
-  return NextResponse.json({
-    providers: configuredServerProviders(),
-    fallback: Boolean(serverApiKey("openrouter")),
-  }, {
+  return NextResponse.json({ providers: configuredServerProviders() }, {
     headers: { "Cache-Control": "no-store" },
   });
 }
 
 async function callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTokens, signal) {
+  const body = {
+    model: agent.model,
+    messages: openAiMessages(history, agent, systemPrompt),
+    max_tokens: maxTokens,
+    stream: false,
+  };
+
+  if (provider.id === "nvidia") {
+    body.temperature = 1;
+    body.top_p = 0.95;
+  }
+
   const response = await fetch(`${provider.baseUrl}chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Accept: "application/json",
       ...authHeaders(provider, apiKey),
     },
-    body: JSON.stringify({
-      model: agent.model,
-      messages: openAiMessages(history, agent, systemPrompt),
-      max_tokens: maxTokens,
-      stream: false,
-    }),
+    body: JSON.stringify(body),
     redirect: "manual",
     cache: "no-store",
     signal,
@@ -193,6 +215,7 @@ async function callGemini(provider, agent, history, systemPrompt, apiKey, maxTok
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Accept: "application/json",
       ...authHeaders(provider, apiKey),
     },
     body: JSON.stringify({
@@ -223,14 +246,6 @@ async function callProvider(provider, agent, history, systemPrompt, apiKey, maxT
     : callOpenAi(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
 }
 
-async function callOpenRouterFallback(agent, history, roomPrompt, maxTokens, signal, failedProvider) {
-  const provider = PROVIDER_MAP.openrouter;
-  const apiKey = serverApiKey("openrouter");
-  const fallbackAgent = { ...agent, model: OPENROUTER_FALLBACK_MODEL };
-  const systemPrompt = `${roomPrompt}\n\nYou are ${agent.name || "an AI participant"}. The configured ${failedProvider.label} request is unavailable, so you are temporarily replying through OpenRouter. Answer the user's request normally. Do not claim that this response came from ${failedProvider.label}. Reply in plain text only; do not wrap the answer in JSON and do not repeat your speaker name.`;
-  return callOpenAi(provider, fallbackAgent, history, systemPrompt, apiKey, maxTokens, signal);
-}
-
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -246,8 +261,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Participant configuration is incomplete." }, { status: 400 });
     }
 
-    // Prefer Vercel environment keys. Browser-entered keys are only used when no server key exists.
-    const apiKey = serverApiKey(provider.id) || cleanText(body?.apiKey, 10_000);
+    const apiKey = serverApiKey(provider.id) || normalizeSecret(cleanText(body?.apiKey, 10_000));
     if (!apiKey) return NextResponse.json({ error: "Add an API key for this participant." }, { status: 400 });
 
     const maxTokens = Math.min(Math.max(Number(body?.maxTokens) || 2048, 128), 8192);
@@ -256,29 +270,8 @@ export async function POST(request) {
     const systemPrompt = `${roomPrompt}\n\nYou are ${agent.name || "an AI participant"}. Messages from other room participants are prefixed with their speaker name. Reply in plain text only; do not wrap the answer in JSON and do not repeat your speaker name.`;
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(84_000)]);
 
-    try {
-      const text = await callProvider(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
-      return NextResponse.json({ text });
-    } catch (error) {
-      if (canFallback(error, provider.id)) {
-        try {
-          const text = await callOpenRouterFallback(agent, history, roomPrompt, maxTokens, signal, provider);
-          const reason = error instanceof ProviderHttpError ? friendlyError(error.status) : "Native provider request failed.";
-          const fallbackText = `Fallback via OpenRouter (${reason})\n\n${text}`;
-          return NextResponse.json({
-            text: fallbackText,
-            fallback: {
-              from: provider.id,
-              via: "openrouter",
-              reason,
-            },
-          });
-        } catch {
-          // Preserve the native provider error if the fallback also fails.
-        }
-      }
-      throw error;
-    }
+    const text = await callProvider(provider, agent, history, systemPrompt, apiKey, maxTokens, signal);
+    return NextResponse.json({ text });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message === "API_KEY_REQUIRED") {
