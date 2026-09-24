@@ -49,10 +49,9 @@ data class AgentProfile(val id: String, val displayName: String, val color: Colo
         // These are migration/new-install seeds, never a closed roster or provider dispatch table.
         val USER = AgentProfile("USER", "You", Color(0xFF6750A4), "Y", ProviderConfig(), false)
         val NVIDIA = AgentProfile("NVIDIA", "NVIDIA", Color(0xFF287D44), "N", ProviderConfig(
-            "https://integrate.api.nvidia.com/v1/", "nvidia/nemotron-3-super-120b-a12b",
-            fallbackModel = "qwen/qwen3.5-397b-a17b"))
+            "https://integrate.api.nvidia.com/v1/", "nvidia/nemotron-3-ultra-550b-a55b"))
         val GEMINI = AgentProfile("GEMINI", "Gemini", Color(0xFF356AC3), "G", ProviderConfig(
-            "https://generativelanguage.googleapis.com/", "gemini-3.6-flash", RequestShape.GEMINI, AuthStyle.GOOGLE_KEY))
+            "https://generativelanguage.googleapis.com/", "gemini-3.8-flash", RequestShape.GEMINI, AuthStyle.GOOGLE_KEY))
         val CHATGPT = AgentProfile("CHATGPT", "ChatGPT", Color(0xFF16836A), "C", ProviderConfig(modelId = "gpt-4o-mini"), false, true)
         fun valueOf(id: String) = listOf(USER, NVIDIA, GEMINI, CHATGPT).find { it.id == id }
             ?: AgentProfile(id, id, Color.Gray, id.take(1), ProviderConfig(), false, true)

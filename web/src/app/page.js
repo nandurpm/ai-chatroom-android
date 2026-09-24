@@ -13,6 +13,13 @@ const starterAgents = [
   { id: "starter-google", name: "Gemini", avatar: "Gm", providerId: "google", model: PROVIDER_MAP.google.model, enabled: true, accent: PROVIDER_MAP.google.accent, apiKey: "" },
 ];
 
+const LEGACY_MODELS = {
+  groq: new Set(["openai/gpt-oss-20b"]),
+  google: new Set(["gemini-3.5-flash-lite", "gemini-3.6-flash"]),
+  huggingface: new Set(["Qwen/Qwen2.5-Coder-32B-Instruct"]),
+  nvidia: new Set(["nvidia/nemotron-3-super-120b-a12b"]),
+};
+
 function newMessage(fields) {
   return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, createdAt: Date.now(), error: false, ...fields };
 }
@@ -20,6 +27,19 @@ function newMessage(fields) {
 function agentWithoutSecret(agent) {
   const { apiKey, ...safe } = agent;
   return safe;
+}
+
+function migrateStoredAgent(agent, keys) {
+  const provider = PROVIDER_MAP[agent?.providerId];
+  if (!provider) return null;
+  const useCurrentModel = !agent.model || LEGACY_MODELS[provider.id]?.has(agent.model);
+  return {
+    ...agent,
+    model: useCurrentModel ? provider.model : agent.model,
+    avatar: agent.avatar || provider.shortLabel,
+    accent: provider.accent,
+    apiKey: keys[agent.id] || "",
+  };
 }
 
 export default function Home() {
@@ -48,7 +68,16 @@ export default function Home() {
     try {
       const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       const keys = JSON.parse(sessionStorage.getItem(KEY_STORAGE) || "{}");
-      if (stored?.agents?.length) setAgents(stored.agents.map((agent) => ({ ...agent, apiKey: keys[agent.id] || "" })));
+      if (stored?.agents?.length) {
+        const migrated = stored.agents
+          .map((agent) => migrateStoredAgent(agent, keys))
+          .filter(Boolean)
+          .slice(0, MAX_AGENTS);
+        if (migrated.length) {
+          if (!migrated.some((agent) => agent.enabled)) migrated[0] = { ...migrated[0], enabled: true };
+          setAgents(migrated);
+        }
+      }
       if (Array.isArray(stored?.messages)) setMessages(stored.messages.slice(-200));
       if (stored?.mode === "expert" || stored?.mode === "friendly") setMode(stored.mode);
     } catch {}
